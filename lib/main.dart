@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:adhan/adhan.dart';
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +13,29 @@ import 'package:timezone/timezone.dart' as tz;
 
 const names = ['الفجر', 'الشروق', 'الظهر', 'العصر', 'المغرب', 'العشاء'];
 const adhanNames = ['الفجر', 'الظهر', 'العصر', 'المغرب', 'العشاء'];
+const weekdayNames = [
+  'الاثنين',
+  'الثلاثاء',
+  'الأربعاء',
+  'الخميس',
+  'الجمعة',
+  'السبت',
+  'الأحد',
+];
+const hijriMonths = [
+  'محرم',
+  'صفر',
+  'ربيع الأول',
+  'ربيع الثاني',
+  'جمادى الأولى',
+  'جمادى الآخرة',
+  'رجب',
+  'شعبان',
+  'رمضان',
+  'شوال',
+  'ذو القعدة',
+  'ذو الحجة',
+];
 
 final Map<String, CalculationMethod> methods = {
   'رابطة العالم الإسلامي': CalculationMethod.muslim_world_league,
@@ -24,6 +48,98 @@ final Map<String, CalculationMethod> methods = {
   'الكويت': CalculationMethod.kuwait,
   'سنغافورة': CalculationMethod.singapore,
 };
+
+// ---------------- الثيمات ----------------
+class AppPalette {
+  final String name;
+  final List<Color> bg;
+  final Color skyline;
+  final Color pill;
+  final Color row;
+  final Color text;
+  final Color soft;
+  const AppPalette(
+    this.name,
+    this.bg,
+    this.skyline,
+    this.pill,
+    this.row,
+    this.text,
+    this.soft,
+  );
+}
+
+const palettes = <AppPalette>[
+  AppPalette(
+    'ذهبي',
+    [Color(0xFFEFCF8A), Color(0xFFE6F2F3), Color(0xFFF3DAE5)],
+    Color(0xFF7A5C2E),
+    Color(0x66A8A58C),
+    Color(0x55FFFFFF),
+    Color(0xFF111111),
+    Color(0xFF444444),
+  ),
+  AppPalette(
+    'أخضر',
+    [Color(0xFFBFE3C7), Color(0xFFE8F5EC), Color(0xFFF3F8F1)],
+    Color(0xFF2F6B4B),
+    Color(0x99FFFFFF),
+    Color(0x66FFFFFF),
+    Color(0xFF10261A),
+    Color(0xFF3C5A4A),
+  ),
+  AppPalette(
+    'ليلي',
+    [Color(0xFF0B1B2B), Color(0xFF12263A), Color(0xFF1B2F44)],
+    Color(0xFF5A7A9A),
+    Color(0x33FFFFFF),
+    Color(0x1AFFFFFF),
+    Color(0xFFF2F2F2),
+    Color(0xFFB8C4D0),
+  ),
+];
+
+final ValueNotifier<int> themeIdx = ValueNotifier<int>(0);
+
+// ---------------- التاريخ الهجري ----------------
+int _jdn(int y, int m, int d) {
+  final a = (14 - m) ~/ 12;
+  final yy = y + 4800 - a;
+  final mm = m + 12 * a - 3;
+  return d +
+      (153 * mm + 2) ~/ 5 +
+      365 * yy +
+      yy ~/ 4 -
+      yy ~/ 100 +
+      yy ~/ 400 -
+      32045;
+}
+
+List<int> hijriOf(DateTime g, int corr) {
+  final jd = _jdn(g.year, g.month, g.day) + corr;
+  final l0 = jd - 1948440 + 10632;
+  final n = (l0 - 1) ~/ 10631;
+  final l1 = l0 - 10631 * n + 354;
+  final j = ((10985 - l1) ~/ 5316) * ((50 * l1) ~/ 17719) +
+      (l1 ~/ 5670) * ((43 * l1) ~/ 15238);
+  final l2 = l1 -
+      ((30 - j) ~/ 15) * ((17719 * j) ~/ 50) -
+      (j ~/ 16) * ((15238 * j) ~/ 43) +
+      29;
+  final m = (24 * l2) ~/ 709;
+  final d = l2 - (709 * m) ~/ 24;
+  final y = 30 * n + j - 30;
+  return [y, m, d];
+}
+
+String arDigits(String s) {
+  const west = '0123456789';
+  const east = '٠١٢٣٤٥٦٧٨٩';
+  return s.split('').map((ch) {
+    final i = west.indexOf(ch);
+    return i < 0 ? ch : east[i];
+  }).join();
+}
 
 // ---------------- الإشعارات ----------------
 final FlutterLocalNotificationsPlugin notif = FlutterLocalNotificationsPlugin();
@@ -143,8 +259,73 @@ Future<int?> fetchOffset(double lat, double lng) async {
   }
 }
 
+// ---------------- رسم المسجد ----------------
+class SkylinePainter extends CustomPainter {
+  final Color color;
+  const SkylinePainter(this.color);
+
+  void _dome(Canvas canvas, Paint p, double cx, double y, double r) {
+    final path = Path()
+      ..moveTo(cx - r, y)
+      ..arcToPoint(Offset(cx + r, y), radius: Radius.circular(r))
+      ..close();
+    canvas.drawPath(path, p);
+    canvas.drawRect(
+        Rect.fromLTWH(cx - r * 0.06, y - r * 1.35, r * 0.12, r * 0.45), p);
+  }
+
+  void _minaret(
+      Canvas canvas, Paint p, double cx, double base, double w, double hgt) {
+    canvas.drawRect(Rect.fromLTWH(cx - w / 2, base - hgt, w, hgt), p);
+    canvas.drawRect(
+        Rect.fromLTWH(cx - w * 0.85, base - hgt * 0.78, w * 1.7, w * 0.35), p);
+    _dome(canvas, p, cx, base - hgt, w * 0.75);
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final paint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [color.withAlpha(200), color.withAlpha(0)],
+      ).createShader(Rect.fromLTWH(0, h * 0.1, w, h * 0.9));
+    final base = h;
+    const heights = [
+      0.12, 0.2, 0.16, 0.26, 0.14, 0.22, 0.1, 0.18, 0.24, 0.13, 0.19, 0.15
+    ];
+    final bw = w / heights.length;
+    for (int i = 0; i < heights.length; i++) {
+      canvas.drawRect(
+        Rect.fromLTWH(i * bw, base - h * heights[i], bw * 0.9, h * heights[i]),
+        paint,
+      );
+    }
+    canvas.drawRect(
+        Rect.fromLTWH(w * 0.32, base - h * 0.3, w * 0.36, h * 0.3), paint);
+    _dome(canvas, paint, w * 0.5, base - h * 0.3, w * 0.18);
+    _dome(canvas, paint, w * 0.36, base - h * 0.3, w * 0.06);
+    _dome(canvas, paint, w * 0.64, base - h * 0.3, w * 0.06);
+    _minaret(canvas, paint, w * 0.12, base, w * 0.045, h * 0.7);
+    _minaret(canvas, paint, w * 0.24, base, w * 0.03, h * 0.46);
+    _minaret(canvas, paint, w * 0.78, base, w * 0.03, h * 0.5);
+    _minaret(canvas, paint, w * 0.88, base, w * 0.045, h * 0.66);
+    _minaret(canvas, paint, w * 0.96, base, w * 0.03, h * 0.45);
+  }
+
+  @override
+  bool shouldRepaint(covariant SkylinePainter old) => old.color != color;
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    final sp = await SharedPreferences.getInstance();
+    final t = sp.getInt('theme') ?? 0;
+    if (t >= 0 && t < palettes.length) themeIdx.value = t;
+  } catch (_) {}
   try {
     await initNotifications();
   } catch (_) {}
@@ -156,15 +337,19 @@ class AdhanApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorSchemeSeed: const Color(0xFF0B6E4F),
-        useMaterial3: true,
+    return ValueListenableBuilder<int>(
+      valueListenable: themeIdx,
+      builder: (context, i, _) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          colorSchemeSeed: const Color(0xFF0B6E4F),
+          brightness: i == 2 ? Brightness.dark : Brightness.light,
+          useMaterial3: true,
+        ),
+        builder: (context, child) =>
+            Directionality(textDirection: TextDirection.rtl, child: child!),
+        home: const HomePage(),
       ),
-      builder: (context, child) =>
-          Directionality(textDirection: TextDirection.rtl, child: child!),
-      home: const HomePage(),
     );
   }
 }
@@ -177,10 +362,13 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  final GlobalKey<ScaffoldState> _sk = GlobalKey<ScaffoldState>();
   Place? _place;
   String _method = 'رابطة العالم الإسلامي';
   bool _hanafi = false;
   bool _adhanOn = true;
+  bool _use24 = true;
+  int _hcorr = 0;
   List<bool> _prayerOn = [true, true, true, true, true];
   List<DateTime> _times = [];
   DateTime? _tomorrowFajr;
@@ -202,6 +390,8 @@ class _HomePageState extends State<HomePage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
   }
+
+  void _soon(String s) => _snack('$s: قريباً بإذن الله');
 
   @override
   void initState() {
@@ -236,6 +426,8 @@ class _HomePageState extends State<HomePage> {
     if (m != null && methods.containsKey(m)) _method = m;
     _hanafi = sp.getBool('hanafi') ?? false;
     _adhanOn = sp.getBool('adhanOn') ?? true;
+    _use24 = sp.getBool('use24') ?? true;
+    _hcorr = sp.getInt('hcorr') ?? 0;
     final po = sp.getStringList('prayerOn');
     if (po != null && po.length == 5) {
       _prayerOn = po.map((e) => e == '1').toList();
@@ -275,6 +467,8 @@ class _HomePageState extends State<HomePage> {
     await sp.setString('method', _method);
     await sp.setBool('hanafi', _hanafi);
     await sp.setBool('adhanOn', _adhanOn);
+    await sp.setBool('use24', _use24);
+    await sp.setInt('hcorr', _hcorr);
     await sp.setStringList(
         'prayerOn', _prayerOn.map((e) => e ? '1' : '0').toList());
   }
@@ -545,6 +739,29 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  void _themeDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('اختر الثيم'),
+        children: [
+          for (int i = 0; i < palettes.length; i++)
+            SimpleDialogOption(
+              onPressed: () async {
+                themeIdx.value = i;
+                Navigator.pop(ctx);
+                if (mounted) setState(() {});
+                final sp = await SharedPreferences.getInstance();
+                await sp.setInt('theme', i);
+              },
+              child: Text(palettes[i].name,
+                  style: const TextStyle(fontSize: 18)),
+            ),
+        ],
+      ),
+    );
+  }
+
   // ---------------- الإعدادات ----------------
   void _settings() {
     showModalBottomSheet(
@@ -591,6 +808,27 @@ class _HomePageState extends State<HomePage> {
                       _hanafi = v;
                       _recalc();
                     }),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('نظام 24 ساعة'),
+                    value: _use24,
+                    onChanged: (v) => upd(() => _use24 = v),
+                  ),
+                  Row(
+                    children: [
+                      const Expanded(child: Text('تصحيح التاريخ الهجري')),
+                      IconButton(
+                        icon: const Icon(Icons.remove_circle_outline),
+                        onPressed: _hcorr > -3 ? () => upd(() => _hcorr--) : null,
+                      ),
+                      Text(_hcorr > 0 ? '+$_hcorr' : '$_hcorr',
+                          style: const TextStyle(fontSize: 18)),
+                      IconButton(
+                        icon: const Icon(Icons.add_circle_outline),
+                        onPressed: _hcorr < 3 ? () => upd(() => _hcorr++) : null,
+                      ),
+                    ],
                   ),
                   const Divider(),
                   const Text('الأذان',
@@ -644,15 +882,18 @@ class _HomePageState extends State<HomePage> {
 
   // ---------------- الواجهة ----------------
   String _fmt(DateTime t) {
+    final mm = t.minute.toString().padLeft(2, '0');
+    if (_use24) return '${t.hour.toString().padLeft(2, '0')}:$mm';
     final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
-    final m = t.minute.toString().padLeft(2, '0');
-    return '$h:$m ${t.hour < 12 ? 'ص' : 'م'}';
+    return '$h:$mm ${t.hour < 12 ? 'ص' : 'م'}';
   }
 
-  String _countdown(Duration d) {
-    final x = d.isNegative ? Duration.zero : d;
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${two(x.inHours)}:${two(x.inMinutes % 60)}:${two(x.inSeconds % 60)}';
+  String _hijriText() {
+    final g = _wallNow;
+    final h = hijriOf(g, _hcorr);
+    final month = hijriMonths[(h[1] - 1).clamp(0, 11)];
+    final wd = weekdayNames[g.weekday - 1];
+    return arDigits('$wd ${h[2]} $month ${h[0]}');
   }
 
   Widget _welcome() {
@@ -697,10 +938,114 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _main() {
+  Widget _row(String name, String time, AppPalette c,
+      {bool hl = false, bool small = false}) {
+    final fg = hl ? Colors.white : c.text;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      padding: EdgeInsets.symmetric(horizontal: 16, vertical: small ? 6 : 4),
+      color: hl ? const Color(0xFF0A9A0A) : c.row,
+      child: Row(
+        children: [
+          Text(name,
+              style: TextStyle(
+                  fontSize: small ? 20 : 28,
+                  fontWeight: FontWeight.w800,
+                  color: fg)),
+          const Spacer(),
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Text(time,
+                style: TextStyle(
+                    fontSize: small ? 26 : 40,
+                    fontWeight: FontWeight.w400,
+                    color: fg)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cdWidget(Duration d, AppPalette c) {
+    final x = d.isNegative ? Duration.zero : d;
+    String two(int n) => n.toString().padLeft(2, '0');
+    Widget unit(String v, String l, {bool thin = false}) => Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(v,
+                style: TextStyle(
+                    fontSize: 60,
+                    height: 1.0,
+                    fontWeight: thin ? FontWeight.w200 : FontWeight.w800,
+                    color: thin ? c.soft : c.text)),
+            Padding(
+              padding: const EdgeInsets.only(top: 2, left: 2, right: 12),
+              child: Text(l,
+                  style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: c.text)),
+            ),
+          ],
+        );
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              unit(two(x.inHours), 'H'),
+              unit(two(x.inMinutes % 60), 'M'),
+              unit(two(x.inSeconds % 60), 'S', thin: true),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _pill(AppPalette c) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: c.pill,
+        borderRadius: BorderRadius.circular(40),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            icon: Icon(Icons.menu, color: c.text, size: 30),
+            onPressed: () => _sk.currentState?.openDrawer(),
+          ),
+          Expanded(
+            child: Center(
+              child: Text(_hijriText(),
+                  style: TextStyle(
+                      color: c.text,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700)),
+            ),
+          ),
+          IconButton(
+            icon: Icon(Icons.explore_outlined, color: c.text, size: 30),
+            onPressed: () => _soon('القبلة'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _home() {
     if (_times.length != 6) {
       return const Center(child: CircularProgressIndicator());
     }
+    final c = palettes[themeIdx.value];
+    final size = MediaQuery.of(context).size;
     int nextIdx = -1;
     for (final i in [0, 2, 3, 4, 5]) {
       if (_times[i].isAfter(_wallNow)) {
@@ -709,97 +1054,180 @@ class _HomePageState extends State<HomePage> {
       }
     }
     final tomorrow = nextIdx == -1;
-    final target = tomorrow
-        ? (_tomorrowFajr ?? _times[0].add(const Duration(days: 1)))
-        : _times[nextIdx];
-    final label = tomorrow ? 'الفجر (غداً)' : names[nextIdx];
+    final tmrFajr =
+        _tomorrowFajr ?? _times[0].add(const Duration(days: 1));
+    final target = tomorrow ? tmrFajr : _times[nextIdx];
     final left = target.difference(_wallNow);
-    final p = _place!;
+    final friday = _wallNow.weekday == DateTime.friday;
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    final rows = <Widget>[];
+    for (int i = 0; i < 6; i++) {
+      final hl = !tomorrow && i == nextIdx;
+      if (hl) rows.add(_cdWidget(left, c));
+      final nm = (i == 2 && friday) ? 'الجمعة' : names[i];
+      rows.add(_row(nm, _fmt(_times[i]), c, hl: hl));
+    }
+    if (tomorrow) rows.add(_cdWidget(left, c));
+    rows.add(_row('الفجر', _fmt(tmrFajr), c, hl: tomorrow, small: true));
+
+    return Stack(
       children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF0B6E4F), Color(0xFF12A37A)],
-              begin: Alignment.topRight,
-              end: Alignment.bottomLeft,
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: c.bg,
+                stops: const [0.0, 0.5, 1.0],
+              ),
             ),
-            borderRadius: BorderRadius.circular(24),
           ),
-          child: Column(
+        ),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: size.height * 0.5,
+          child: CustomPaint(painter: SkylinePainter(c.skyline)),
+        ),
+        SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.only(bottom: 24),
             children: [
-              const Text('الصلاة القادمة',
-                  style: TextStyle(color: Colors.white70, fontSize: 16)),
-              const SizedBox(height: 4),
-              Text(label,
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Directionality(
-                textDirection: TextDirection.ltr,
-                child: Text(_countdown(left),
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 48,
-                        fontWeight: FontWeight.bold)),
+              _pill(c),
+              SizedBox(height: size.height * 0.2),
+              ...rows,
+              if (_busy) const LinearProgressIndicator(),
+              const SizedBox(height: 12),
+              Center(
+                child: Text(
+                  _adhanOn ? 'الأذان مفعّل 🔔' : 'الأذان متوقف 🔕',
+                  style: TextStyle(color: c.soft),
+                ),
               ),
             ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        ListTile(
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: const BorderSide(color: Color(0x33000000))),
-          leading: Icon(p.gps ? Icons.my_location : Icons.location_on),
-          title: Text(p.name),
-          subtitle: p.sub.isEmpty ? null : Text(p.sub),
-          trailing: const Icon(Icons.edit_location_alt),
-          onTap: _placeSheet,
-        ),
-        if (_busy) const LinearProgressIndicator(),
-        const SizedBox(height: 8),
-        for (int i = 0; i < names.length; i++)
-          ListTile(
-            selected: !tomorrow && i == nextIdx,
-            title: Text(names[i], style: const TextStyle(fontSize: 22)),
-            trailing: Text(_fmt(_times[i]),
-                style:
-                    const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-          ),
-        const SizedBox(height: 12),
-        Center(
-          child: Text(
-            _adhanOn ? 'الأذان مفعّل 🔔' : 'الأذان متوقف 🔕',
-            style: const TextStyle(color: Colors.grey),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Center(
-          child: Text(
-            'طريقة الحساب: $_method',
-            style: const TextStyle(color: Colors.grey),
           ),
         ),
       ],
     );
   }
 
+  Widget _dItem(IconData ic, String t, VoidCallback f) => ListTile(
+        leading: Icon(ic),
+        title: Text(t,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+        onTap: () {
+          _sk.currentState?.closeDrawer();
+          f();
+        },
+      );
+
+  Widget _drawer() {
+    final p = _place;
+    String coords = '';
+    if (p != null) {
+      final ns = p.lat >= 0 ? 'N' : 'S';
+      final ew = p.lng >= 0 ? 'E' : 'W';
+      final gmt = (_offset(p).inMinutes / 60).toStringAsFixed(1);
+      coords =
+          '${p.lat.abs().toStringAsFixed(2)} $ns ${p.lng.abs().toStringAsFixed(3)} $ew\n$gmt GMT';
+    }
+    return Drawer(
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            color: const Color(0xFF18A31A),
+            padding: EdgeInsets.fromLTRB(
+                16, MediaQuery.of(context).padding.top + 16, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('الموقع الحالي',
+                    style: TextStyle(color: Colors.white, fontSize: 16)),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(coords,
+                          textDirection: TextDirection.ltr,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600)),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.my_location, color: Colors.white),
+                      onPressed: () {
+                        _sk.currentState?.closeDrawer();
+                        _useGps();
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 26,
+                      backgroundColor: const Color(0xFF0B5E10),
+                      child: IconButton(
+                        icon: const Icon(Icons.sync, color: Colors.white),
+                        onPressed: () {
+                          setState(() => _recalc());
+                          _scheduleAll();
+                          _snack('تم تحديث المواقيت');
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(p?.name ?? 'لم يتم تحديد الموقع',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 26,
+                              fontWeight: FontWeight.w800)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                _dItem(Icons.volunteer_activism, 'الأذكار',
+                    () => _soon('الأذكار')),
+                _dItem(Icons.alarm, 'التذكير', () => _soon('التذكير')),
+                _dItem(Icons.calendar_month, 'التقويم الهجري',
+                    () => _soon('التقويم الهجري')),
+                const Divider(),
+                _dItem(Icons.calendar_view_month, 'شهري',
+                    () => _soon('الجدول الشهري')),
+                _dItem(Icons.place, 'المواقع', _placeSheet),
+                _dItem(Icons.music_note, 'أصوات الأذان',
+                    () => _soon('أصوات الأذان')),
+                _dItem(Icons.palette, 'الثيمات', _themeDialog),
+                const Divider(),
+                _dItem(Icons.settings, 'الإعدادات', _settings),
+                _dItem(Icons.help, 'إقتراح أو مشكلة',
+                    () => _soon('الاقتراحات')),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('مواقيت الصلاة'),
-        actions: [
-          IconButton(icon: const Icon(Icons.settings), onPressed: _settings),
-        ],
-      ),
-      body: _place == null ? _welcome() : _main(),
+      key: _sk,
+      drawer: _place == null ? null : _drawer(),
+      body: _place == null ? SafeArea(child: _welcome()) : _home(),
     );
   }
 }
