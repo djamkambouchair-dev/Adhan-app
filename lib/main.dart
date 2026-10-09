@@ -1,14 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:adhan/adhan.dart';
+import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-
-void main() => runApp(const AdhanApp());
+import 'package:timezone/data/latest_all.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 
 const names = ['الفجر', 'الشروق', 'الظهر', 'العصر', 'المغرب', 'العشاء'];
+const adhanNames = ['الفجر', 'الظهر', 'العصر', 'المغرب', 'العشاء'];
 
 final Map<String, CalculationMethod> methods = {
   'رابطة العالم الإسلامي': CalculationMethod.muslim_world_league,
@@ -22,6 +25,63 @@ final Map<String, CalculationMethod> methods = {
   'سنغافورة': CalculationMethod.singapore,
 };
 
+// ---------------- الإشعارات ----------------
+final FlutterLocalNotificationsPlugin notif = FlutterLocalNotificationsPlugin();
+const String channelId = 'adhan_channel_v1';
+
+Future<void> initNotifications() async {
+  tzdata.initializeTimeZones();
+  const init = InitializationSettings(
+    android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+  );
+  await notif.initialize(settings: init);
+  final a = notif.resolvePlatformSpecificImplementation<
+      AndroidFlutterLocalNotificationsPlugin>();
+  await a?.createNotificationChannel(const AndroidNotificationChannel(
+    channelId,
+    'الأذان',
+    description: 'تنبيهات الأذان في أوقات الصلاة',
+    importance: Importance.max,
+    playSound: true,
+    sound: RawResourceAndroidNotificationSound('adhan'),
+    audioAttributesUsage: AudioAttributesUsage.alarm,
+    enableVibration: true,
+  ));
+}
+
+Future<void> askPermissions() async {
+  final a = notif.resolvePlatformSpecificImplementation<
+      AndroidFlutterLocalNotificationsPlugin>();
+  await a?.requestNotificationsPermission();
+  final can = await a?.canScheduleExactNotifications() ?? false;
+  if (!can) await a?.requestExactAlarmsPermission();
+}
+
+NotificationDetails adhanDetails() => const NotificationDetails(
+      android: AndroidNotificationDetails(
+        channelId,
+        'الأذان',
+        channelDescription: 'تنبيهات الأذان في أوقات الصلاة',
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        sound: RawResourceAndroidNotificationSound('adhan'),
+        audioAttributesUsage: AudioAttributesUsage.alarm,
+        category: AndroidNotificationCategory.alarm,
+        visibility: NotificationVisibility.public,
+      ),
+    );
+
+Future<AndroidScheduleMode> scheduleMode() async {
+  final a = notif.resolvePlatformSpecificImplementation<
+      AndroidFlutterLocalNotificationsPlugin>();
+  final can = await a?.canScheduleExactNotifications() ?? false;
+  return can
+      ? AndroidScheduleMode.exactAllowWhileIdle
+      : AndroidScheduleMode.inexactAllowWhileIdle;
+}
+
+// ---------------- الموقع ----------------
 class Place {
   final String name;
   final String sub;
@@ -83,6 +143,14 @@ Future<int?> fetchOffset(double lat, double lng) async {
   }
 }
 
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await initNotifications();
+  } catch (_) {}
+  runApp(const AdhanApp());
+}
+
 class AdhanApp extends StatelessWidget {
   const AdhanApp({super.key});
 
@@ -112,6 +180,8 @@ class _HomePageState extends State<HomePage> {
   Place? _place;
   String _method = 'رابطة العالم الإسلامي';
   bool _hanafi = false;
+  bool _adhanOn = true;
+  List<bool> _prayerOn = [true, true, true, true, true];
   List<DateTime> _times = [];
   DateTime? _tomorrowFajr;
   int _calcDay = -1;
@@ -119,12 +189,19 @@ class _HomePageState extends State<HomePage> {
   Timer? _timer;
   bool _busy = false;
   String? _msg;
+  bool _sched = false;
+  bool _schedAgain = false;
 
   Duration _offset(Place p) =>
       p.gps ? DateTime.now().timeZoneOffset : Duration(seconds: p.offsetSec);
 
   DateTime _wall(DateTime t, Duration off) =>
       t.isUtc ? t : t.toUtc().add(off);
+
+  void _snack(String m) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  }
 
   @override
   void initState() {
@@ -138,7 +215,10 @@ class _HomePageState extends State<HomePage> {
           .add(p == null ? Duration.zero : _offset(p));
       setState(() {
         _wallNow = now;
-        if (p != null && now.day != _calcDay) _recalc();
+        if (p != null && now.day != _calcDay) {
+          _recalc();
+          _scheduleAll();
+        }
       });
     });
   }
@@ -155,6 +235,11 @@ class _HomePageState extends State<HomePage> {
     final m = sp.getString('method');
     if (m != null && methods.containsKey(m)) _method = m;
     _hanafi = sp.getBool('hanafi') ?? false;
+    _adhanOn = sp.getBool('adhanOn') ?? true;
+    final po = sp.getStringList('prayerOn');
+    if (po != null && po.length == 5) {
+      _prayerOn = po.map((e) => e == '1').toList();
+    }
     if (raw != null) {
       try {
         _place = Place.fromJson(jsonDecode(raw) as Map<String, dynamic>);
@@ -162,6 +247,10 @@ class _HomePageState extends State<HomePage> {
     }
     if (!mounted) return;
     setState(() => _recalc());
+    try {
+      await askPermissions();
+    } catch (_) {}
+    await _scheduleAll();
     final pl = _place;
     if (pl != null && !pl.gps) {
       final off = await fetchOffset(pl.lat, pl.lng);
@@ -169,8 +258,10 @@ class _HomePageState extends State<HomePage> {
         _place = pl.withOffset(off);
         await _savePlace();
         setState(() => _recalc());
+        await _scheduleAll();
       }
     }
+    if (_place != null) await _batteryHintOnce();
   }
 
   Future<void> _savePlace() async {
@@ -183,6 +274,9 @@ class _HomePageState extends State<HomePage> {
     final sp = await SharedPreferences.getInstance();
     await sp.setString('method', _method);
     await sp.setBool('hanafi', _hanafi);
+    await sp.setBool('adhanOn', _adhanOn);
+    await sp.setStringList(
+        'prayerOn', _prayerOn.map((e) => e ? '1' : '0').toList());
   }
 
   void _recalc() {
@@ -215,6 +309,139 @@ class _HomePageState extends State<HomePage> {
     _wallNow = now;
   }
 
+  // ---------------- جدولة الأذان ----------------
+  Future<void> _scheduleAll() async {
+    if (_sched) {
+      _schedAgain = true;
+      return;
+    }
+    _sched = true;
+    try {
+      do {
+        _schedAgain = false;
+        await _doSchedule();
+      } while (_schedAgain);
+    } finally {
+      _sched = false;
+    }
+  }
+
+  Future<void> _doSchedule() async {
+    final p = _place;
+    if (p == null) return;
+    try {
+      await notif.cancelAll();
+      if (!_adhanOn) return;
+      final off = _offset(p);
+      final coords = Coordinates(p.lat, p.lng);
+      final params = methods[_method]!.getParameters();
+      params.madhab = _hanafi ? Madhab.hanafi : Madhab.shafi;
+      final nowUtc = DateTime.now().toUtc();
+      final wallNow = nowUtc.add(off);
+      final mode = await scheduleMode();
+      for (int d = 0; d < 7; d++) {
+        final date = wallNow.add(Duration(days: d));
+        final pt = PrayerTimes(coords, DateComponents.from(date), params,
+            utcOffset: off);
+        final list = [pt.fajr, pt.dhuhr, pt.asr, pt.maghrib, pt.isha];
+        for (int i = 0; i < 5; i++) {
+          if (!_prayerOn[i]) continue;
+          final wall = _wall(list[i], off);
+          final instant = wall.subtract(off);
+          if (!instant.isAfter(nowUtc)) continue;
+          await notif.zonedSchedule(
+            id: d * 10 + i,
+            title: 'حان الآن موعد أذان ${adhanNames[i]}',
+            body: p.gps ? 'حسب موقعك الحالي' : 'حسب توقيت ${p.name}',
+            scheduledDate: tz.TZDateTime.from(instant, tz.UTC),
+            notificationDetails: adhanDetails(),
+            androidScheduleMode: mode,
+          );
+        }
+      }
+    } catch (e) {
+      _snack('تعذرت جدولة الأذان: $e');
+    }
+  }
+
+  Future<void> _testNow() async {
+    try {
+      await notif.show(
+        id: 999,
+        title: 'تجربة الأذان',
+        body: 'الله أكبر الله أكبر',
+        notificationDetails: adhanDetails(),
+      );
+    } catch (e) {
+      _snack('تعذرت التجربة: $e');
+    }
+  }
+
+  Future<void> _testLater() async {
+    try {
+      await notif.zonedSchedule(
+        id: 998,
+        title: 'تجربة الأذان',
+        body: 'الله أكبر الله أكبر',
+        scheduledDate:
+            tz.TZDateTime.now(tz.UTC).add(const Duration(seconds: 60)),
+        notificationDetails: adhanDetails(),
+        androidScheduleMode: await scheduleMode(),
+      );
+      _snack('سيصلك الأذان بعد دقيقة. اقفل الشاشة الآن');
+    } catch (e) {
+      _snack('تعذرت التجربة: $e');
+    }
+  }
+
+  Future<void> _batterySettings() async {
+    try {
+      final intent = AndroidIntent(
+        action: 'android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+        data: 'package:com.example.adhan_app',
+      );
+      await intent.launch();
+    } catch (_) {
+      try {
+        final intent2 = AndroidIntent(
+          action: 'android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS',
+        );
+        await intent2.launch();
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _batteryHintOnce() async {
+    final sp = await SharedPreferences.getInstance();
+    if (sp.getBool('batteryHint') ?? false) return;
+    if (!mounted) return;
+    await sp.setBool('batteryHint', true);
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('مهم لعمل الأذان'),
+        content: const Text(
+            'حتى يعمل الأذان والهاتف مقفل، اسمح للتطبيق بالعمل في الخلفية '
+            'وبدون تقييد البطارية. في بعض الهواتف (Xiaomi وHuawei وSamsung) '
+            'فعّل أيضاً "التشغيل التلقائي" من إعدادات التطبيق.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('لاحقاً')),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _batterySettings();
+            },
+            child: const Text('فتح الإعدادات'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------- اختيار الموقع ----------------
   Future<void> _useGps() async {
     setState(() {
       _busy = true;
@@ -257,6 +484,8 @@ class _HomePageState extends State<HomePage> {
         _recalc();
         _busy = false;
       });
+      await _scheduleAll();
+      await _batteryHintOnce();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -283,6 +512,8 @@ class _HomePageState extends State<HomePage> {
       _recalc();
       _busy = false;
     });
+    await _scheduleAll();
+    await _batteryHintOnce();
   }
 
   void _placeSheet() {
@@ -314,56 +545,104 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  // ---------------- الإعدادات ----------------
   void _settings() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setS) => Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('طريقة الحساب',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              DropdownButton<String>(
-                isExpanded: true,
-                value: _method,
-                items: [
-                  for (final k in methods.keys)
-                    DropdownMenuItem(value: k, child: Text(k)),
+        builder: (ctx, setS) {
+          void upd(VoidCallback f) {
+            setState(f);
+            setS(() {});
+            _saveSettings();
+            _scheduleAll();
+          }
+
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('طريقة الحساب',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  DropdownButton<String>(
+                    isExpanded: true,
+                    value: _method,
+                    items: [
+                      for (final k in methods.keys)
+                        DropdownMenuItem(value: k, child: Text(k)),
+                    ],
+                    onChanged: (v) {
+                      if (v == null) return;
+                      upd(() {
+                        _method = v;
+                        _recalc();
+                      });
+                    },
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('المذهب الحنفي في العصر'),
+                    value: _hanafi,
+                    onChanged: (v) => upd(() {
+                      _hanafi = v;
+                      _recalc();
+                    }),
+                  ),
+                  const Divider(),
+                  const Text('الأذان',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('تفعيل الأذان'),
+                    value: _adhanOn,
+                    onChanged: (v) => upd(() => _adhanOn = v),
+                  ),
+                  for (int i = 0; i < 5; i++)
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(adhanNames[i]),
+                      value: _prayerOn[i],
+                      onChanged: _adhanOn
+                          ? (v) => upd(() => _prayerOn[i] = v ?? true)
+                          : null,
+                    ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      _testNow();
+                    },
+                    icon: const Icon(Icons.volume_up),
+                    label: const Text('تجربة الأذان الآن'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      _testLater();
+                    },
+                    icon: const Icon(Icons.timer),
+                    label: const Text('تجربة بعد دقيقة (اقفل الشاشة)'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _batterySettings,
+                    icon: const Icon(Icons.battery_saver),
+                    label: const Text('السماح بالعمل في الخلفية (مهم)'),
+                  ),
                 ],
-                onChanged: (v) {
-                  if (v == null) return;
-                  setState(() {
-                    _method = v;
-                    _recalc();
-                  });
-                  setS(() {});
-                  _saveSettings();
-                },
               ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('المذهب الحنفي في العصر'),
-                value: _hanafi,
-                onChanged: (v) {
-                  setState(() {
-                    _hanafi = v;
-                    _recalc();
-                  });
-                  setS(() {});
-                  _saveSettings();
-                },
-              ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
 
+  // ---------------- الواجهة ----------------
   String _fmt(DateTime t) {
     final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
     final m = t.minute.toString().padLeft(2, '0');
@@ -496,6 +775,13 @@ class _HomePageState extends State<HomePage> {
         const SizedBox(height: 12),
         Center(
           child: Text(
+            _adhanOn ? 'الأذان مفعّل 🔔' : 'الأذان متوقف 🔕',
+            style: const TextStyle(color: Colors.grey),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Center(
+          child: Text(
             'طريقة الحساب: $_method',
             style: const TextStyle(color: Colors.grey),
           ),
@@ -518,6 +804,7 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
+// ---------------- صفحة البحث ----------------
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
 
