@@ -13,6 +13,9 @@ dependencies:
   geolocator: ^13.0.1
   http: ^1.2.2
   shared_preferences: ^2.3.0
+  flutter_local_notifications: 20.1.0
+  timezone: ^0.10.0
+  android_intent_plus: ^5.2.0
 
 flutter:
   uses-material-design: true
