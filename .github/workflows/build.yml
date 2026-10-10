@@ -42,7 +42,6 @@ jobs:
             echo "adhan.mp3 is missing in the repo root"
             exit 1
           fi
-      # بيانات المدن: غيّر v1 إلى v2 لإعادة توليدها
       - name: Restore geo cache
         id: geocache
         uses: actions/cache/restore@v4
@@ -69,9 +68,40 @@ jobs:
       - run: flutter create --platforms=android --project-name adhan_app .
       - name: Patch Android
         run: |
-          M=android/app/src/main/AndroidManifest.xml
-          sed -i 's|<application|<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>\n    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    <uses-permission android:name="android.permission.VIBRATE"/>\n    <uses-permission android:name="android.permission.WAKE_LOCK"/>\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>\n    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>\n    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>\n    <application|' $M
-          sed -i 's|</application>|    <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />\n        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">\n            <intent-filter>\n                <action android:name="android.intent.action.BOOT_COMPLETED"/>\n                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>\n                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>\n                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>\n            </intent-filter>\n        </receiver>\n    </application>|' $M
+          python3 - <<'PY'
+          p = 'android/app/src/main/AndroidManifest.xml'
+          s = open(p, encoding='utf-8').read()
+          perms = ['ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION', 'INTERNET',
+                   'POST_NOTIFICATIONS', 'VIBRATE', 'WAKE_LOCK',
+                   'RECEIVE_BOOT_COMPLETED', 'SCHEDULE_EXACT_ALARM',
+                   'USE_EXACT_ALARM', 'REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+                   'FOREGROUND_SERVICE', 'FOREGROUND_SERVICE_SPECIAL_USE']
+          add = ''.join('    <uses-permission android:name="android.permission.%s"/>\n' % x for x in perms)
+          comp = """    <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
+              <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+                  <intent-filter>
+                      <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                      <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                      <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+                      <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+                  </intent-filter>
+              </receiver>
+              <service android:name=".PrayerService" android:exported="false" android:foregroundServiceType="specialUse">
+                  <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="prayer_countdown_notification"/>
+              </service>
+              <receiver android:name=".DismissReceiver" android:exported="false"/>
+              <receiver android:name=".RefreshReceiver" android:exported="false"/>
+              <receiver android:name=".BootReceiver" android:exported="true">
+                  <intent-filter>
+                      <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                      <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                  </intent-filter>
+              </receiver>
+          """
+          s = s.replace('<application', add + '    <application', 1)
+          s = s.replace('</application>', comp + '</application>', 1)
+          open(p, 'w', encoding='utf-8').write(s)
+          PY
           KS="$GITHUB_WORKSPACE/signing/debug.keystore"
           if [ -f android/app/build.gradle.kts ]; then
             sed -i 's/compileOptions {/compileOptions {\n        isCoreLibraryDesugaringEnabled = true/' android/app/build.gradle.kts
@@ -84,7 +114,307 @@ jobs:
           fi
           mkdir -p android/app/src/main/res/raw
           cp adhan.mp3 android/app/src/main/res/raw/adhan.mp3
-          printf '%s\n' '<?xml version="1.0" encoding="utf-8"?>' '<resources xmlns:tools="http://schemas.android.com/tools" tools:keep="@raw/adhan" />' > android/app/src/main/res/raw/keep.xml
+          printf '%s\n' '<?xml version="1.0" encoding="utf-8"?>' '<resources xmlns:tools="http://schemas.android.com/tools" tools:keep="@raw/adhan,@drawable/ic_stat_mosque" />' > android/app/src/main/res/raw/keep.xml
+          mkdir -p android/app/src/main/res/drawable
+          cat > android/app/src/main/res/drawable/ic_stat_mosque.xml <<'XML'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp"
+              android:height="24dp"
+              android:viewportWidth="24"
+              android:viewportHeight="24">
+              <path
+                  android:fillColor="#FFFFFFFF"
+                  android:pathData="M12,3 C9.5,5 8,6.8 8,9 L8,10 L16,10 L16,9 C16,6.8 14.5,5 12,3 Z M5,6 L6,4 L7,6 L7,21 L5,21 Z M17,6 L18,4 L19,6 L19,21 L17,21 Z M7,11 L17,11 L17,21 L14,21 L14,16 C14,14.9 13.1,14 12,14 C10.9,14 10,14.9 10,16 L10,21 L7,21 Z"/>
+          </vector>
+          XML
+          MA=$(find android/app/src/main -name MainActivity.kt | head -n 1)
+          if [ -z "$MA" ]; then
+            find android/app/src/main -name MainActivity.java -delete
+            KDIR=android/app/src/main/kotlin/com/example/adhan_app
+            mkdir -p "$KDIR"
+          else
+            KDIR=$(dirname "$MA")
+          fi
+          echo "Kotlin dir: $KDIR"
+          cat > "$KDIR/MainActivity.kt" <<'KOT'
+          package com.example.adhan_app
+
+          import android.content.Intent
+          import android.os.Build
+          import io.flutter.embedding.android.FlutterActivity
+          import io.flutter.embedding.engine.FlutterEngine
+          import io.flutter.plugin.common.MethodChannel
+
+          class MainActivity : FlutterActivity() {
+              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+                  super.configureFlutterEngine(flutterEngine)
+                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "adhan/fgs")
+                      .setMethodCallHandler { call, result ->
+                          when (call.method) {
+                              "start" -> {
+                                  try {
+                                      val i = Intent(this, PrayerService::class.java)
+                                      if (Build.VERSION.SDK_INT >= 26) {
+                                          startForegroundService(i)
+                                      } else {
+                                          startService(i)
+                                      }
+                                  } catch (e: Exception) {
+                                      PrayerNotif.post(this)
+                                  }
+                                  result.success(true)
+                              }
+                              "stop" -> {
+                                  try {
+                                      stopService(Intent(this, PrayerService::class.java))
+                                  } catch (e: Exception) {
+                                  }
+                                  PrayerNotif.cancel(this)
+                                  result.success(true)
+                              }
+                              else -> result.notImplemented()
+                          }
+                      }
+              }
+          }
+          KOT
+          cat > "$KDIR/PrayerNotif.kt" <<'KOT'
+          package com.example.adhan_app
+
+          import android.app.AlarmManager
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.content.Context
+          import android.content.Intent
+          import android.os.Build
+          import org.json.JSONArray
+
+          object PrayerNotif {
+              const val CHANNEL = "next_prayer_fg_v1"
+              const val NOTIF_ID = 4242
+              private const val GREEN = 0xFF12B76AL
+
+              private class Ev(val t: Long, val title: String, val body: String)
+
+              private fun prefs(ctx: Context) =
+                  ctx.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+
+              fun enabled(ctx: Context): Boolean =
+                  prefs(ctx).getBoolean("flutter.persistOn", true)
+
+              private fun events(ctx: Context): List<Ev> {
+                  val raw = prefs(ctx).getString("flutter.persistEvents", null) ?: return emptyList()
+                  return try {
+                      val arr = JSONArray(raw)
+                      val out = ArrayList<Ev>()
+                      for (i in 0 until arr.length()) {
+                          val o = arr.getJSONObject(i)
+                          out.add(Ev(o.getLong("t"), o.getString("title"), o.getString("body")))
+                      }
+                      out
+                  } catch (e: Exception) {
+                      emptyList()
+                  }
+              }
+
+              private fun nextEvent(ctx: Context): Ev? {
+                  val now = System.currentTimeMillis()
+                  return events(ctx).firstOrNull { it.t > now }
+              }
+
+              private fun ensureChannel(ctx: Context) {
+                  if (Build.VERSION.SDK_INT >= 26) {
+                      val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                      if (nm.getNotificationChannel(CHANNEL) == null) {
+                          val ch = NotificationChannel(CHANNEL, "الصلاة القادمة", NotificationManager.IMPORTANCE_LOW)
+                          ch.setShowBadge(false)
+                          ch.description = "عدّاد تنازلي للصلاة القادمة"
+                          nm.createNotificationChannel(ch)
+                      }
+                  }
+              }
+
+              private fun builder(ctx: Context): Notification.Builder {
+                  ensureChannel(ctx)
+                  return if (Build.VERSION.SDK_INT >= 26) {
+                      Notification.Builder(ctx, CHANNEL)
+                  } else {
+                      Notification.Builder(ctx)
+                  }
+              }
+
+              private fun smallIcon(ctx: Context): Int {
+                  val id = ctx.resources.getIdentifier("ic_stat_mosque", "drawable", ctx.packageName)
+                  return if (id != 0) id else ctx.applicationInfo.icon
+              }
+
+              private fun openIntent(ctx: Context): PendingIntent? {
+                  val i = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName) ?: return null
+                  return PendingIntent.getActivity(
+                      ctx, 0, i,
+                      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                  )
+              }
+
+              private fun deleteIntent(ctx: Context): PendingIntent {
+                  val i = Intent(ctx, DismissReceiver::class.java)
+                  return PendingIntent.getBroadcast(
+                      ctx, 1, i,
+                      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                  )
+              }
+
+              private fun refreshIntent(ctx: Context): PendingIntent {
+                  val i = Intent(ctx, RefreshReceiver::class.java)
+                  return PendingIntent.getBroadcast(
+                      ctx, 2, i,
+                      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                  )
+              }
+
+              fun fallback(ctx: Context): Notification {
+                  val b = builder(ctx)
+                      .setSmallIcon(smallIcon(ctx))
+                      .setContentTitle("الأذان")
+                      .setContentText("افتح التطبيق لتحديث مواقيت الصلاة")
+                      .setOngoing(true)
+                      .setOnlyAlertOnce(true)
+                  openIntent(ctx)?.let { b.setContentIntent(it) }
+                  return b.build()
+              }
+
+              fun build(ctx: Context): Notification? {
+                  val ev = nextEvent(ctx) ?: return null
+                  val b = builder(ctx)
+                      .setSmallIcon(smallIcon(ctx))
+                      .setContentTitle(ev.title)
+                      .setContentText(ev.body)
+                      .setOngoing(true)
+                      .setOnlyAlertOnce(true)
+                      .setShowWhen(true)
+                      .setWhen(ev.t)
+                      .setDeleteIntent(deleteIntent(ctx))
+                      .setVisibility(Notification.VISIBILITY_PUBLIC)
+                      .setCategory(Notification.CATEGORY_SERVICE)
+                      .setColor(GREEN.toInt())
+                  if (Build.VERSION.SDK_INT >= 24) {
+                      b.setUsesChronometer(true)
+                      b.setChronometerCountDown(true)
+                  }
+                  if (Build.VERSION.SDK_INT >= 26) {
+                      b.setColorized(true)
+                  }
+                  openIntent(ctx)?.let { b.setContentIntent(it) }
+                  return b.build()
+              }
+
+              fun scheduleNext(ctx: Context) {
+                  val ev = nextEvent(ctx) ?: return
+                  val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                  val pi = refreshIntent(ctx)
+                  val at = ev.t + 800
+                  if (Build.VERSION.SDK_INT >= 23) {
+                      try {
+                          am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+                      } catch (e: SecurityException) {
+                          am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+                      }
+                  } else {
+                      am.set(AlarmManager.RTC_WAKEUP, at, pi)
+                  }
+              }
+
+              fun post(ctx: Context) {
+                  val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                  if (!enabled(ctx)) {
+                      nm.cancel(NOTIF_ID)
+                      return
+                  }
+                  val n = build(ctx)
+                  if (n != null) {
+                      nm.notify(NOTIF_ID, n)
+                      scheduleNext(ctx)
+                  }
+              }
+
+              fun cancel(ctx: Context) {
+                  val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                  nm.cancel(NOTIF_ID)
+                  val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                  am.cancel(refreshIntent(ctx))
+              }
+          }
+          KOT
+          cat > "$KDIR/PrayerService.kt" <<'KOT'
+          package com.example.adhan_app
+
+          import android.app.Service
+          import android.content.Intent
+          import android.content.pm.ServiceInfo
+          import android.os.Build
+          import android.os.IBinder
+
+          class PrayerService : Service() {
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  val n = if (PrayerNotif.enabled(this)) PrayerNotif.build(this) else null
+                  val shown = n ?: PrayerNotif.fallback(this)
+                  if (Build.VERSION.SDK_INT >= 34) {
+                      startForeground(
+                          PrayerNotif.NOTIF_ID, shown,
+                          ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                      )
+                  } else {
+                      startForeground(PrayerNotif.NOTIF_ID, shown)
+                  }
+                  if (n == null) {
+                      stopForeground(true)
+                      stopSelf()
+                      return START_NOT_STICKY
+                  }
+                  PrayerNotif.scheduleNext(this)
+                  return START_STICKY
+              }
+          }
+          KOT
+          cat > "$KDIR/Receivers.kt" <<'KOT'
+          package com.example.adhan_app
+
+          import android.content.BroadcastReceiver
+          import android.content.Context
+          import android.content.Intent
+          import android.os.Build
+
+          class DismissReceiver : BroadcastReceiver() {
+              override fun onReceive(context: Context, intent: Intent?) {
+                  PrayerNotif.post(context)
+              }
+          }
+
+          class RefreshReceiver : BroadcastReceiver() {
+              override fun onReceive(context: Context, intent: Intent?) {
+                  PrayerNotif.post(context)
+              }
+          }
+
+          class BootReceiver : BroadcastReceiver() {
+              override fun onReceive(context: Context, intent: Intent?) {
+                  if (!PrayerNotif.enabled(context)) return
+                  try {
+                      val i = Intent(context, PrayerService::class.java)
+                      if (Build.VERSION.SDK_INT >= 26) {
+                          context.startForegroundService(i)
+                      } else {
+                          context.startService(i)
+                      }
+                  } catch (e: Exception) {
+                  }
+              }
+          }
+          KOT
       - run: flutter pub get
       - run: flutter build apk --release --no-shrink
       - name: Verify signature
