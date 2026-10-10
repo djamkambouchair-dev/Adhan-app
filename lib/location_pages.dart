@@ -9,164 +9,152 @@ import 'main.dart';
 
 class Country {
   final String code;
-  final String name;
+  final String ar;
+  final String en;
+  final String fr;
   final int group;
-  const Country(this.code, this.name, this.group);
+  const Country(this.code, this.ar, this.en, this.fr, this.group);
 
-  String get flag => String.fromCharCodes(
-      code.codeUnits.map((u) => 0x1F1E6 + u - 65));
+  String get name => isAr ? ar : (currentLang == 'en' ? en : fr);
+  String get flag =>
+      String.fromCharCodes(code.codeUnits.map((u) => 0x1F1E6 + u - 65));
 }
 
 // المجموعات: 0 عربية، 1 إسلامية، 2 أوروبا، 3 أخرى
 const countries = <Country>[
-  Country('SA', 'السعودية', 0),
-  Country('AE', 'الإمارات', 0),
-  Country('QA', 'قطر', 0),
-  Country('KW', 'الكويت', 0),
-  Country('BH', 'البحرين', 0),
-  Country('OM', 'عُمان', 0),
-  Country('YE', 'اليمن', 0),
-  Country('IQ', 'العراق', 0),
-  Country('SY', 'سوريا', 0),
-  Country('LB', 'لبنان', 0),
-  Country('JO', 'الأردن', 0),
-  Country('PS', 'فلسطين', 0),
-  Country('EG', 'مصر', 0),
-  Country('SD', 'السودان', 0),
-  Country('LY', 'ليبيا', 0),
-  Country('TN', 'تونس', 0),
-  Country('DZ', 'الجزائر', 0),
-  Country('MA', 'المغرب', 0),
-  Country('MR', 'موريتانيا', 0),
-  Country('SO', 'الصومال', 0),
-  Country('DJ', 'جيبوتي', 0),
-  Country('KM', 'جزر القمر', 0),
-  Country('TR', 'تركيا', 1),
-  Country('IR', 'إيران', 1),
-  Country('PK', 'باكستان', 1),
-  Country('AF', 'أفغانستان', 1),
-  Country('BD', 'بنغلاديش', 1),
-  Country('ID', 'إندونيسيا', 1),
-  Country('MY', 'ماليزيا', 1),
-  Country('BN', 'بروناي', 1),
-  Country('MV', 'المالديف', 1),
-  Country('SN', 'السنغال', 1),
-  Country('ML', 'مالي', 1),
-  Country('NE', 'النيجر', 1),
-  Country('TD', 'تشاد', 1),
-  Country('NG', 'نيجيريا', 1),
-  Country('GM', 'غامبيا', 1),
-  Country('GN', 'غينيا', 1),
-  Country('SL', 'سيراليون', 1),
-  Country('BF', 'بوركينا فاسو', 1),
-  Country('CI', 'ساحل العاج', 1),
-  Country('GH', 'غانا', 1),
-  Country('ET', 'إثيوبيا', 1),
-  Country('ER', 'إريتريا', 1),
-  Country('KE', 'كينيا', 1),
-  Country('TZ', 'تنزانيا', 1),
-  Country('UG', 'أوغندا', 1),
-  Country('AZ', 'أذربيجان', 1),
-  Country('KZ', 'كازاخستان', 1),
-  Country('UZ', 'أوزبكستان', 1),
-  Country('TM', 'تركمانستان', 1),
-  Country('TJ', 'طاجيكستان', 1),
-  Country('KG', 'قيرغيزستان', 1),
-  Country('AL', 'ألبانيا', 1),
-  Country('XK', 'كوسوفو', 1),
-  Country('BA', 'البوسنة والهرسك', 1),
-  Country('LK', 'سريلانكا', 1),
-  Country('IN', 'الهند', 1),
-  Country('CN', 'الصين', 1),
-  Country('DE', 'ألمانيا', 2),
-  Country('FR', 'فرنسا', 2),
-  Country('GB', 'بريطانيا', 2),
-  Country('ES', 'إسبانيا', 2),
-  Country('IT', 'إيطاليا', 2),
-  Country('NL', 'هولندا', 2),
-  Country('BE', 'بلجيكا', 2),
-  Country('CH', 'سويسرا', 2),
-  Country('AT', 'النمسا', 2),
-  Country('SE', 'السويد', 2),
-  Country('NO', 'النرويج', 2),
-  Country('DK', 'الدنمارك', 2),
-  Country('FI', 'فنلندا', 2),
-  Country('IE', 'أيرلندا', 2),
-  Country('PT', 'البرتغال', 2),
-  Country('GR', 'اليونان', 2),
-  Country('PL', 'بولندا', 2),
-  Country('CZ', 'التشيك', 2),
-  Country('HU', 'المجر', 2),
-  Country('RO', 'رومانيا', 2),
-  Country('BG', 'بلغاريا', 2),
-  Country('RS', 'صربيا', 2),
-  Country('HR', 'كرواتيا', 2),
-  Country('SI', 'سلوفينيا', 2),
-  Country('SK', 'سلوفاكيا', 2),
-  Country('UA', 'أوكرانيا', 2),
-  Country('RU', 'روسيا', 2),
-  Country('LU', 'لوكسمبورغ', 2),
-  Country('IS', 'آيسلندا', 2),
-  Country('MK', 'مقدونيا الشمالية', 2),
-  Country('ME', 'الجبل الأسود', 2),
-  Country('MD', 'مولدوفا', 2),
-  Country('BY', 'بيلاروسيا', 2),
-  Country('LT', 'ليتوانيا', 2),
-  Country('LV', 'لاتفيا', 2),
-  Country('EE', 'إستونيا', 2),
-  Country('CY', 'قبرص', 2),
-  Country('MT', 'مالطا', 2),
-  Country('US', 'الولايات المتحدة', 3),
-  Country('CA', 'كندا', 3),
-  Country('AU', 'أستراليا', 3),
-  Country('NZ', 'نيوزيلندا', 3),
-  Country('ZA', 'جنوب أفريقيا', 3),
-  Country('BR', 'البرازيل', 3),
-  Country('AR', 'الأرجنتين', 3),
-  Country('MX', 'المكسيك', 3),
-  Country('JP', 'اليابان', 3),
-  Country('KR', 'كوريا الجنوبية', 3),
-  Country('SG', 'سنغافورة', 3),
-  Country('TH', 'تايلاند', 3),
-  Country('PH', 'الفلبين', 3),
-  Country('VN', 'فيتنام', 3),
-  Country('MM', 'ميانمار', 3),
+  Country('SA', 'السعودية', 'Saudi Arabia', 'Arabie saoudite', 0),
+  Country('AE', 'الإمارات', 'United Arab Emirates', 'Émirats arabes unis', 0),
+  Country('QA', 'قطر', 'Qatar', 'Qatar', 0),
+  Country('KW', 'الكويت', 'Kuwait', 'Koweït', 0),
+  Country('BH', 'البحرين', 'Bahrain', 'Bahreïn', 0),
+  Country('OM', 'عُمان', 'Oman', 'Oman', 0),
+  Country('YE', 'اليمن', 'Yemen', 'Yémen', 0),
+  Country('IQ', 'العراق', 'Iraq', 'Irak', 0),
+  Country('SY', 'سوريا', 'Syria', 'Syrie', 0),
+  Country('LB', 'لبنان', 'Lebanon', 'Liban', 0),
+  Country('JO', 'الأردن', 'Jordan', 'Jordanie', 0),
+  Country('PS', 'فلسطين', 'Palestine', 'Palestine', 0),
+  Country('EG', 'مصر', 'Egypt', 'Égypte', 0),
+  Country('SD', 'السودان', 'Sudan', 'Soudan', 0),
+  Country('LY', 'ليبيا', 'Libya', 'Libye', 0),
+  Country('TN', 'تونس', 'Tunisia', 'Tunisie', 0),
+  Country('DZ', 'الجزائر', 'Algeria', 'Algérie', 0),
+  Country('MA', 'المغرب', 'Morocco', 'Maroc', 0),
+  Country('MR', 'موريتانيا', 'Mauritania', 'Mauritanie', 0),
+  Country('SO', 'الصومال', 'Somalia', 'Somalie', 0),
+  Country('DJ', 'جيبوتي', 'Djibouti', 'Djibouti', 0),
+  Country('KM', 'جزر القمر', 'Comoros', 'Comores', 0),
+  Country('TR', 'تركيا', 'Türkiye', 'Turquie', 1),
+  Country('IR', 'إيران', 'Iran', 'Iran', 1),
+  Country('PK', 'باكستان', 'Pakistan', 'Pakistan', 1),
+  Country('AF', 'أفغانستان', 'Afghanistan', 'Afghanistan', 1),
+  Country('BD', 'بنغلاديش', 'Bangladesh', 'Bangladesh', 1),
+  Country('ID', 'إندونيسيا', 'Indonesia', 'Indonésie', 1),
+  Country('MY', 'ماليزيا', 'Malaysia', 'Malaisie', 1),
+  Country('BN', 'بروناي', 'Brunei', 'Brunéi', 1),
+  Country('MV', 'المالديف', 'Maldives', 'Maldives', 1),
+  Country('SN', 'السنغال', 'Senegal', 'Sénégal', 1),
+  Country('ML', 'مالي', 'Mali', 'Mali', 1),
+  Country('NE', 'النيجر', 'Niger', 'Niger', 1),
+  Country('TD', 'تشاد', 'Chad', 'Tchad', 1),
+  Country('NG', 'نيجيريا', 'Nigeria', 'Nigéria', 1),
+  Country('GM', 'غامبيا', 'Gambia', 'Gambie', 1),
+  Country('GN', 'غينيا', 'Guinea', 'Guinée', 1),
+  Country('SL', 'سيراليون', 'Sierra Leone', 'Sierra Leone', 1),
+  Country('BF', 'بوركينا فاسو', 'Burkina Faso', 'Burkina Faso', 1),
+  Country('CI', 'ساحل العاج', "Côte d'Ivoire", "Côte d'Ivoire", 1),
+  Country('GH', 'غانا', 'Ghana', 'Ghana', 1),
+  Country('ET', 'إثيوبيا', 'Ethiopia', 'Éthiopie', 1),
+  Country('ER', 'إريتريا', 'Eritrea', 'Érythrée', 1),
+  Country('KE', 'كينيا', 'Kenya', 'Kenya', 1),
+  Country('TZ', 'تنزانيا', 'Tanzania', 'Tanzanie', 1),
+  Country('UG', 'أوغندا', 'Uganda', 'Ouganda', 1),
+  Country('AZ', 'أذربيجان', 'Azerbaijan', 'Azerbaïdjan', 1),
+  Country('KZ', 'كازاخستان', 'Kazakhstan', 'Kazakhstan', 1),
+  Country('UZ', 'أوزبكستان', 'Uzbekistan', 'Ouzbékistan', 1),
+  Country('TM', 'تركمانستان', 'Turkmenistan', 'Turkménistan', 1),
+  Country('TJ', 'طاجيكستان', 'Tajikistan', 'Tadjikistan', 1),
+  Country('KG', 'قيرغيزستان', 'Kyrgyzstan', 'Kirghizistan', 1),
+  Country('AL', 'ألبانيا', 'Albania', 'Albanie', 1),
+  Country('XK', 'كوسوفو', 'Kosovo', 'Kosovo', 1),
+  Country('BA', 'البوسنة والهرسك', 'Bosnia and Herzegovina', 'Bosnie-Herzégovine', 1),
+  Country('LK', 'سريلانكا', 'Sri Lanka', 'Sri Lanka', 1),
+  Country('IN', 'الهند', 'India', 'Inde', 1),
+  Country('CN', 'الصين', 'China', 'Chine', 1),
+  Country('DE', 'ألمانيا', 'Germany', 'Allemagne', 2),
+  Country('FR', 'فرنسا', 'France', 'France', 2),
+  Country('GB', 'بريطانيا', 'United Kingdom', 'Royaume-Uni', 2),
+  Country('ES', 'إسبانيا', 'Spain', 'Espagne', 2),
+  Country('IT', 'إيطاليا', 'Italy', 'Italie', 2),
+  Country('NL', 'هولندا', 'Netherlands', 'Pays-Bas', 2),
+  Country('BE', 'بلجيكا', 'Belgium', 'Belgique', 2),
+  Country('CH', 'سويسرا', 'Switzerland', 'Suisse', 2),
+  Country('AT', 'النمسا', 'Austria', 'Autriche', 2),
+  Country('SE', 'السويد', 'Sweden', 'Suède', 2),
+  Country('NO', 'النرويج', 'Norway', 'Norvège', 2),
+  Country('DK', 'الدنمارك', 'Denmark', 'Danemark', 2),
+  Country('FI', 'فنلندا', 'Finland', 'Finlande', 2),
+  Country('IE', 'أيرلندا', 'Ireland', 'Irlande', 2),
+  Country('PT', 'البرتغال', 'Portugal', 'Portugal', 2),
+  Country('GR', 'اليونان', 'Greece', 'Grèce', 2),
+  Country('PL', 'بولندا', 'Poland', 'Pologne', 2),
+  Country('CZ', 'التشيك', 'Czechia', 'Tchéquie', 2),
+  Country('HU', 'المجر', 'Hungary', 'Hongrie', 2),
+  Country('RO', 'رومانيا', 'Romania', 'Roumanie', 2),
+  Country('BG', 'بلغاريا', 'Bulgaria', 'Bulgarie', 2),
+  Country('RS', 'صربيا', 'Serbia', 'Serbie', 2),
+  Country('HR', 'كرواتيا', 'Croatia', 'Croatie', 2),
+  Country('SI', 'سلوفينيا', 'Slovenia', 'Slovénie', 2),
+  Country('SK', 'سلوفاكيا', 'Slovakia', 'Slovaquie', 2),
+  Country('UA', 'أوكرانيا', 'Ukraine', 'Ukraine', 2),
+  Country('RU', 'روسيا', 'Russia', 'Russie', 2),
+  Country('LU', 'لوكسمبورغ', 'Luxembourg', 'Luxembourg', 2),
+  Country('IS', 'آيسلندا', 'Iceland', 'Islande', 2),
+  Country('MK', 'مقدونيا الشمالية', 'North Macedonia', 'Macédoine du Nord', 2),
+  Country('ME', 'الجبل الأسود', 'Montenegro', 'Monténégro', 2),
+  Country('MD', 'مولدوفا', 'Moldova', 'Moldavie', 2),
+  Country('BY', 'بيلاروسيا', 'Belarus', 'Biélorussie', 2),
+  Country('LT', 'ليتوانيا', 'Lithuania', 'Lituanie', 2),
+  Country('LV', 'لاتفيا', 'Latvia', 'Lettonie', 2),
+  Country('EE', 'إستونيا', 'Estonia', 'Estonie', 2),
+  Country('CY', 'قبرص', 'Cyprus', 'Chypre', 2),
+  Country('MT', 'مالطا', 'Malta', 'Malte', 2),
+  Country('US', 'الولايات المتحدة', 'United States', 'États-Unis', 3),
+  Country('CA', 'كندا', 'Canada', 'Canada', 3),
+  Country('AU', 'أستراليا', 'Australia', 'Australie', 3),
+  Country('NZ', 'نيوزيلندا', 'New Zealand', 'Nouvelle-Zélande', 3),
+  Country('ZA', 'جنوب أفريقيا', 'South Africa', 'Afrique du Sud', 3),
+  Country('BR', 'البرازيل', 'Brazil', 'Brésil', 3),
+  Country('AR', 'الأرجنتين', 'Argentina', 'Argentine', 3),
+  Country('MX', 'المكسيك', 'Mexico', 'Mexique', 3),
+  Country('JP', 'اليابان', 'Japan', 'Japon', 3),
+  Country('KR', 'كوريا الجنوبية', 'South Korea', 'Corée du Sud', 3),
+  Country('SG', 'سنغافورة', 'Singapore', 'Singapour', 3),
+  Country('TH', 'تايلاند', 'Thailand', 'Thaïlande', 3),
+  Country('PH', 'الفلبين', 'Philippines', 'Philippines', 3),
+  Country('VN', 'فيتنام', 'Vietnam', 'Viêt Nam', 3),
+  Country('MM', 'ميانمار', 'Myanmar', 'Myanmar', 3),
 ];
-
-const groupNames = ['الدول العربية', 'الدول الإسلامية', 'أوروبا', 'دول أخرى'];
 
 // ======================= أدوات مساعدة =======================
 String norm(String s) {
-  var t = s.toLowerCase();
-  t = t.replaceAll(RegExp('[\u064B-\u065F\u0670\u0640]'), '');
-  t = t
+  var x = s.toLowerCase();
+  x = x.replaceAll(RegExp('[\u064B-\u065F\u0670\u0640]'), '');
+  x = x
       .replaceAll('أ', 'ا')
       .replaceAll('إ', 'ا')
       .replaceAll('آ', 'ا')
       .replaceAll('ى', 'ي')
       .replaceAll('ة', 'ه');
   const fr = {
-    'é': 'e',
-    'è': 'e',
-    'ê': 'e',
-    'ë': 'e',
-    'à': 'a',
-    'â': 'a',
-    'ä': 'a',
-    'î': 'i',
-    'ï': 'i',
-    'ô': 'o',
-    'ö': 'o',
-    'û': 'u',
-    'ù': 'u',
-    'ü': 'u',
-    'ç': 'c',
-    'ñ': 'n',
+    'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e', 'à': 'a', 'â': 'a', 'ä': 'a',
+    'î': 'i', 'ï': 'i', 'ô': 'o', 'ö': 'o', 'û': 'u', 'ù': 'u', 'ü': 'u',
+    'ç': 'c', 'ñ': 'n',
   };
   for (final e in fr.entries) {
-    t = t.replaceAll(e.key, e.value);
+    x = x.replaceAll(e.key, e.value);
   }
-  return t.trim();
+  return x.trim();
 }
 
 int zoneOffsetSec(String zone) {
@@ -189,7 +177,9 @@ class GeoPlace {
   const GeoPlace(this.ar, this.la, this.admin, this.key, this.lat, this.lng,
       this.pop, this.zone);
 
-  String get name => ar.isNotEmpty ? ar : la;
+  String get name =>
+      isAr ? (ar.isNotEmpty ? ar : la) : (la.isNotEmpty ? la : ar);
+  String get alt => isAr ? la : ar;
 }
 
 class GeoData {
@@ -236,44 +226,37 @@ Future<Place?> manualPlaceDialog(
   final nameC = TextEditingController(text: initial);
   final latC = TextEditingController();
   final lngC = TextEditingController();
+  const kb = TextInputType.numberWithOptions(decimal: true, signed: true);
   return showDialog<Place>(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: const Text('إدخال موقع يدوياً'),
+      title: Text(t('manual_title')),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: nameC,
-              decoration:
-                  const InputDecoration(labelText: 'اسم المدينة أو البلدية'),
+              decoration: InputDecoration(labelText: t('place_name_label')),
             ),
             TextField(
               controller: latC,
-              keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true, signed: true),
-              decoration:
-                  const InputDecoration(labelText: 'خط العرض (مثال 36.45)'),
+              keyboardType: kb,
+              decoration: InputDecoration(labelText: t('lat_label')),
             ),
             TextField(
               controller: lngC,
-              keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true, signed: true),
-              decoration:
-                  const InputDecoration(labelText: 'خط الطول (مثال 6.26)'),
+              keyboardType: kb,
+              decoration: InputDecoration(labelText: t('lng_label')),
             ),
             const SizedBox(height: 10),
-            const Text(
-              'تجد الإحداثيات في خرائط جوجل: اضغط مطولاً على مكانك فتظهر الأرقام.',
-              style: TextStyle(fontSize: 12),
-            ),
+            Text(t('coords_help'), style: const TextStyle(fontSize: 12)),
           ],
         ),
       ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+            onPressed: () => Navigator.pop(ctx), child: Text(t('cancel'))),
         FilledButton(
           onPressed: () {
             final lat = double.tryParse(latC.text.trim().replaceAll(',', '.'));
@@ -284,14 +267,14 @@ Future<Place?> manualPlaceDialog(
                 lng == null ||
                 lat.abs() > 90 ||
                 lng.abs() > 180) {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                  content: Text('تأكد من الاسم ومن صحة الأرقام')));
+              ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(t('check_inputs'))));
               return;
             }
             Navigator.pop(
                 ctx, Place(name: nm, sub: countryName, lat: lat, lng: lng));
           },
-          child: const Text('حفظ'),
+          child: Text(t('save')),
         ),
       ],
     ),
@@ -326,19 +309,31 @@ class _CountryPageState extends State<CountryPage> {
   @override
   Widget build(BuildContext context) {
     final q = _q.trim();
+    final nq = norm(q);
     final primary = Theme.of(context).colorScheme.primary;
+    final groupNames = [
+      t('g_arab'),
+      t('g_islamic'),
+      t('g_europe'),
+      t('g_other'),
+    ];
     final children = <Widget>[
       ListTile(
         leading: const Icon(Icons.public),
-        title: const Text('ابحث عن مدينة في كل الدول'),
-        trailing: const Icon(Icons.chevron_left),
+        title: Text(t('search_all_world')),
+        trailing: Icon(isAr ? Icons.chevron_left : Icons.chevron_right),
         onTap: _global,
       ),
       const Divider(),
     ];
     for (int g = 0; g < 4; g++) {
       final list = countries
-          .where((x) => x.group == g && (q.isEmpty || x.name.contains(q)))
+          .where((x) =>
+              x.group == g &&
+              (q.isEmpty ||
+                  x.ar.contains(q) ||
+                  norm(x.en).contains(nq) ||
+                  norm(x.fr).contains(nq)))
           .toList();
       if (list.isEmpty) continue;
       children.add(Padding(
@@ -351,23 +346,23 @@ class _CountryPageState extends State<CountryPage> {
         children.add(ListTile(
           leading: Text(x.flag, style: const TextStyle(fontSize: 28)),
           title: Text(x.name, style: const TextStyle(fontSize: 18)),
-          trailing: const Icon(Icons.chevron_left),
+          trailing: Icon(isAr ? Icons.chevron_left : Icons.chevron_right),
           onTap: () => _open(x),
         ));
       }
     }
-    children.add(const Padding(
-      padding: EdgeInsets.all(16),
-      child: Text('بيانات المواقع: GeoNames (CC BY 4.0)',
+    children.add(Padding(
+      padding: const EdgeInsets.all(16),
+      child: Text(t('geo_credit'),
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12, color: Colors.grey)),
+          style: const TextStyle(fontSize: 12, color: Colors.grey)),
     ));
     return Scaffold(
       appBar: AppBar(
         title: TextField(
           onChanged: (v) => setState(() => _q = v),
-          decoration: const InputDecoration(
-            hintText: 'اختر الدولة أو ابحث عنها',
+          decoration: InputDecoration(
+            hintText: t('pick_country_hint'),
             border: InputBorder.none,
           ),
         ),
@@ -424,15 +419,16 @@ class _GeoCountryPageState extends State<GeoCountryPage> {
 
   String _adminName(GeoData d, String code) {
     final a = d.admins[code];
-    if (a == null) return 'أخرى';
-    return a[0].isNotEmpty ? a[0] : a[1];
+    if (a == null) return t('other');
+    if (isAr) return a[0].isNotEmpty ? a[0] : a[1];
+    return a[1].isNotEmpty ? a[1] : a[0];
   }
 
   Place _toPlace(GeoPlace g, GeoData d) {
     final parts = <String>[];
-    if (g.ar.isNotEmpty && g.la.isNotEmpty) parts.add(g.la);
+    if (g.alt.isNotEmpty && g.alt != g.name) parts.add(g.alt);
     final an = _adminName(d, g.admin);
-    if (an != g.name && an != 'أخرى') parts.add(an);
+    if (an != g.name && g.admin.isNotEmpty) parts.add(an);
     parts.add(widget.country.name);
     final zone =
         (g.zone >= 0 && g.zone < d.zones.length) ? d.zones[g.zone] : '';
@@ -447,8 +443,8 @@ class _GeoCountryPageState extends State<GeoCountryPage> {
 
   Widget _placeTile(GeoPlace g, GeoData d, {bool withAdmin = false}) {
     final sub = <String>[];
-    if (g.ar.isNotEmpty && g.la.isNotEmpty) sub.add(g.la);
-    if (withAdmin) {
+    if (g.alt.isNotEmpty && g.alt != g.name) sub.add(g.alt);
+    if (withAdmin && g.admin.isNotEmpty) {
       final an = _adminName(d, g.admin);
       if (an != g.name) sub.add(an);
     }
@@ -480,12 +476,12 @@ class _GeoCountryPageState extends State<GeoCountryPage> {
           children: [
             ActionChip(
               avatar: const Icon(Icons.cloud_outlined, size: 18),
-              label: const Text('بحث عبر الإنترنت'),
+              label: Text(t('online_search')),
               onPressed: _online,
             ),
             ActionChip(
               avatar: const Icon(Icons.edit_location_alt, size: 18),
-              label: const Text('إحداثيات يدوية'),
+              label: Text(t('manual_coords')),
               onPressed: _manual,
             ),
           ],
@@ -515,11 +511,15 @@ class _GeoCountryPageState extends State<GeoCountryPage> {
       builder = (i) {
         final k = keys[i];
         final a = d.admins[k];
-        final latin = (a != null && a[0].isNotEmpty) ? a[1] : '';
+        String alt = '';
+        if (a != null) {
+          alt = isAr ? a[1] : a[0];
+          if (alt == _adminName(d, k)) alt = '';
+        }
         return ListTile(
           leading: const Icon(Icons.map_outlined),
           title: Text(_adminName(d, k), style: const TextStyle(fontSize: 18)),
-          subtitle: latin.isEmpty ? null : Text(latin),
+          subtitle: alt.isEmpty ? null : Text(alt),
           trailing: Text(arDigits('${d.counts[k] ?? 0}'),
               style: const TextStyle(fontSize: 14, color: Colors.grey)),
           onTap: () => setState(() => _admin = k),
@@ -530,10 +530,10 @@ class _GeoCountryPageState extends State<GeoCountryPage> {
         ..sort((a, b) => a.key.compareTo(b.key));
       if (!flat) {
         top = ListTile(
-          leading: const Icon(Icons.arrow_forward),
+          leading: Icon(isAr ? Icons.arrow_forward : Icons.arrow_back),
           title: Text(_adminName(d, _admin ?? ''),
               style: const TextStyle(fontWeight: FontWeight.w800)),
-          subtitle: const Text('اضغط للرجوع إلى القائمة'),
+          subtitle: Text(t('tap_back_list')),
           onTap: () => setState(() => _admin = null),
         );
       }
@@ -565,7 +565,8 @@ class _GeoCountryPageState extends State<GeoCountryPage> {
         title: TextField(
           onChanged: (v) => setState(() => _q = v),
           decoration: InputDecoration(
-            hintText: '${widget.country.flag} ابحث في ${widget.country.name}',
+            hintText:
+                '${widget.country.flag} ${t('search_in', [widget.country.name])}',
             border: InputBorder.none,
           ),
         ),
@@ -592,7 +593,7 @@ class _CityPageState extends State<CityPage> {
   List<Place> _res = [];
   bool _loading = false;
   bool _searched = false;
-  String? _err;
+  bool _err = false;
 
   @override
   void dispose() {
@@ -606,7 +607,7 @@ class _CityPageState extends State<CityPage> {
     if (q.trim().length < 2) {
       setState(() {
         _res = [];
-        _err = null;
+        _err = false;
         _searched = false;
       });
       return;
@@ -617,13 +618,13 @@ class _CityPageState extends State<CityPage> {
   Future<void> _search(String q) async {
     setState(() {
       _loading = true;
-      _err = null;
+      _err = false;
     });
     try {
       final uri = Uri.https('geocoding-api.open-meteo.com', '/v1/search', {
         'name': q,
         'count': '50',
-        'language': 'ar',
+        'language': isAr ? 'ar' : currentLang,
         'format': 'json',
         'countryCode': widget.country.code,
       });
@@ -655,7 +656,7 @@ class _CityPageState extends State<CityPage> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _err = 'تعذر البحث. تأكد من اتصالك بالإنترنت';
+        _err = true;
         _loading = false;
       });
     }
@@ -677,7 +678,7 @@ class _CityPageState extends State<CityPage> {
           autofocus: true,
           onChanged: _onChanged,
           decoration: InputDecoration(
-            hintText: '${widget.country.flag} اكتب اسم المدينة أو البلدية',
+            hintText: '${widget.country.flag} ${t('type_city_hint')}',
             border: InputBorder.none,
           ),
         ),
@@ -686,25 +687,23 @@ class _CityPageState extends State<CityPage> {
         padding: EdgeInsets.only(bottom: 24 + bottom),
         children: [
           if (_loading) const LinearProgressIndicator(),
-          if (_err != null)
+          if (_err)
             Padding(
               padding: const EdgeInsets.all(16),
-              child: Text(_err!, style: const TextStyle(color: Colors.red)),
+              child: Text(t('search_failed'),
+                  style: const TextStyle(color: Colors.red)),
             ),
           if (!_searched && _res.isEmpty && !_loading)
             Padding(
               padding: const EdgeInsets.all(20),
-              child: Text(
-                'ابحث في ${widget.country.name}: اكتب حرفين على الأقل. وإن لم يظهر الاسم بالعربية فجرّب بالحروف اللاتينية.',
-                style: const TextStyle(fontSize: 15),
-              ),
+              child: Text(t('city_search_help', [widget.country.name]),
+                  style: const TextStyle(fontSize: 15)),
             ),
           if (_searched && _res.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(20),
-              child: Text(
-                  'لا توجد نتائج. جرّب كتابة الاسم بشكل آخر، أو أدخل الإحداثيات يدوياً.',
-                  style: TextStyle(fontSize: 15)),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Text(t('no_results'),
+                  style: const TextStyle(fontSize: 15)),
             ),
           for (final p in _res)
             ListTile(
@@ -716,7 +715,7 @@ class _CityPageState extends State<CityPage> {
           const Divider(),
           ListTile(
             leading: const Icon(Icons.edit_location_alt),
-            title: const Text('لم تجد مدينتك؟ أدخل إحداثياتها يدوياً'),
+            title: Text(t('not_found_manual')),
             onTap: _manual,
           ),
         ],
@@ -738,7 +737,7 @@ class _SearchPageState extends State<SearchPage> {
   Timer? _deb;
   List<Place> _res = [];
   bool _loading = false;
-  String? _err;
+  bool _err = false;
 
   @override
   void dispose() {
@@ -752,7 +751,7 @@ class _SearchPageState extends State<SearchPage> {
     if (q.trim().length < 2) {
       setState(() {
         _res = [];
-        _err = null;
+        _err = false;
       });
       return;
     }
@@ -762,13 +761,13 @@ class _SearchPageState extends State<SearchPage> {
   Future<void> _search(String q) async {
     setState(() {
       _loading = true;
-      _err = null;
+      _err = false;
     });
     try {
       final uri = Uri.https('geocoding-api.open-meteo.com', '/v1/search', {
         'name': q,
         'count': '30',
-        'language': 'ar',
+        'language': isAr ? 'ar' : currentLang,
         'format': 'json',
       });
       final r = await http.get(uri).timeout(const Duration(seconds: 15));
@@ -795,7 +794,7 @@ class _SearchPageState extends State<SearchPage> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _err = 'تعذر البحث. تأكد من اتصالك بالإنترنت';
+        _err = true;
         _loading = false;
       });
     }
@@ -809,8 +808,8 @@ class _SearchPageState extends State<SearchPage> {
           controller: _c,
           autofocus: true,
           onChanged: _onChanged,
-          decoration: const InputDecoration(
-            hintText: 'اكتب اسم المدينة في أي دولة',
+          decoration: InputDecoration(
+            hintText: t('global_hint'),
             border: InputBorder.none,
           ),
         ),
@@ -818,10 +817,11 @@ class _SearchPageState extends State<SearchPage> {
       body: Column(
         children: [
           if (_loading) const LinearProgressIndicator(),
-          if (_err != null)
+          if (_err)
             Padding(
               padding: const EdgeInsets.all(16),
-              child: Text(_err!, style: const TextStyle(color: Colors.red)),
+              child: Text(t('search_failed'),
+                  style: const TextStyle(color: Colors.red)),
             ),
           Expanded(
             child: ListView(
