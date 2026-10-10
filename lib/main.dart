@@ -97,7 +97,45 @@ const palettes = <AppPalette>[
     Color(0xFFF2F2F2),
     Color(0xFFB8C4D0),
   ),
+  AppPalette(
+    'أزرق',
+    [Color(0xFFBFDDF2), Color(0xFFE8F3FA), Color(0xFFF4F7FB)],
+    Color(0xFF2D5F8A),
+    Color(0x99FFFFFF),
+    Color(0x66FFFFFF),
+    Color(0xFF0F2233),
+    Color(0xFF3D5B73),
+  ),
+  AppPalette(
+    'وردي',
+    [Color(0xFFF3C6D3), Color(0xFFFBE9EE), Color(0xFFFDF4F6)],
+    Color(0xFF8A3A55),
+    Color(0x99FFFFFF),
+    Color(0x66FFFFFF),
+    Color(0xFF2A1019),
+    Color(0xFF6B3F50),
+  ),
+  AppPalette(
+    'رملي',
+    [Color(0xFFD9C3A5), Color(0xFFF1E8DA), Color(0xFFF8F3EA)],
+    Color(0xFF5B4326),
+    Color(0x99FFFFFF),
+    Color(0x66FFFFFF),
+    Color(0xFF261A0C),
+    Color(0xFF6B5638),
+  ),
+  AppPalette(
+    'ليلي أخضر',
+    [Color(0xFF06241B), Color(0xFF0B3A2B), Color(0xFF104A38)],
+    Color(0xFF3F8F72),
+    Color(0x33FFFFFF),
+    Color(0x1AFFFFFF),
+    Color(0xFFEFF7F3),
+    Color(0xFFA9C7BA),
+  ),
 ];
+
+bool isDarkTheme(int i) => i == 2 || i == 6;
 
 final ValueNotifier<int> themeIdx = ValueNotifier<int>(0);
 
@@ -343,7 +381,7 @@ class AdhanApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           colorSchemeSeed: const Color(0xFF0B6E4F),
-          brightness: i == 2 ? Brightness.dark : Brightness.light,
+          brightness: isDarkTheme(i) ? Brightness.dark : Brightness.light,
           useMaterial3: true,
         ),
         builder: (context, child) =>
@@ -739,6 +777,62 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  // ---------------- اختيار الثيم ----------------
+  Widget _themePreview(AppPalette p, bool selected) {
+    return Container(
+      width: 96,
+      height: 72,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: selected ? const Color(0xFF0A9A0A) : Colors.black26,
+          width: selected ? 3 : 1,
+        ),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: p.bg,
+          stops: const [0.0, 0.5, 1.0],
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(11),
+        child: Stack(
+          children: [
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 50,
+              child: CustomPaint(painter: SkylinePainter(p.skyline)),
+            ),
+            Positioned(
+              left: 8,
+              right: 8,
+              bottom: 22,
+              height: 8,
+              child: ColoredBox(color: p.row),
+            ),
+            const Positioned(
+              left: 8,
+              right: 8,
+              bottom: 11,
+              height: 8,
+              child: ColoredBox(color: Color(0xFF0A9A0A)),
+            ),
+            Positioned(
+              left: 8,
+              right: 8,
+              bottom: 0,
+              height: 8,
+              child: ColoredBox(color: p.row),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _themeDialog() {
     showDialog(
       context: context,
@@ -754,8 +848,19 @@ class _HomePageState extends State<HomePage> {
                 final sp = await SharedPreferences.getInstance();
                 await sp.setInt('theme', i);
               },
-              child: Text(palettes[i].name,
-                  style: const TextStyle(fontSize: 18)),
+              child: Row(
+                children: [
+                  _themePreview(palettes[i], themeIdx.value == i),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(palettes[i].name,
+                        style: const TextStyle(
+                            fontSize: 20, fontWeight: FontWeight.w700)),
+                  ),
+                  if (themeIdx.value == i)
+                    const Icon(Icons.check_circle, color: Color(0xFF0A9A0A)),
+                ],
+              ),
             ),
         ],
       ),
