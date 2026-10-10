@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
+import 'package:timezone/timezone.dart' as tz;
 import 'main.dart';
 
 class Country {
@@ -132,6 +135,169 @@ const countries = <Country>[
 
 const groupNames = ['الدول العربية', 'الدول الإسلامية', 'أوروبا', 'دول أخرى'];
 
+// ======================= أدوات مساعدة =======================
+String norm(String s) {
+  var t = s.toLowerCase();
+  t = t.replaceAll(RegExp('[\u064B-\u065F\u0670\u0640]'), '');
+  t = t
+      .replaceAll('أ', 'ا')
+      .replaceAll('إ', 'ا')
+      .replaceAll('آ', 'ا')
+      .replaceAll('ى', 'ي')
+      .replaceAll('ة', 'ه');
+  const fr = {
+    'é': 'e',
+    'è': 'e',
+    'ê': 'e',
+    'ë': 'e',
+    'à': 'a',
+    'â': 'a',
+    'ä': 'a',
+    'î': 'i',
+    'ï': 'i',
+    'ô': 'o',
+    'ö': 'o',
+    'û': 'u',
+    'ù': 'u',
+    'ü': 'u',
+    'ç': 'c',
+    'ñ': 'n',
+  };
+  for (final e in fr.entries) {
+    t = t.replaceAll(e.key, e.value);
+  }
+  return t.trim();
+}
+
+int zoneOffsetSec(String zone) {
+  try {
+    return tz.TZDateTime.now(tz.getLocation(zone)).timeZoneOffset.inSeconds;
+  } catch (_) {
+    return DateTime.now().timeZoneOffset.inSeconds;
+  }
+}
+
+class GeoPlace {
+  final String ar;
+  final String la;
+  final String admin;
+  final String key;
+  final double lat;
+  final double lng;
+  final int pop;
+  final int zone;
+  const GeoPlace(this.ar, this.la, this.admin, this.key, this.lat, this.lng,
+      this.pop, this.zone);
+
+  String get name => ar.isNotEmpty ? ar : la;
+}
+
+class GeoData {
+  final List<String> zones;
+  final Map<String, List<String>> admins;
+  final Map<String, int> counts;
+  final List<GeoPlace> places;
+  const GeoData(this.zones, this.admins, this.counts, this.places);
+}
+
+GeoData parseGeo(String txt) {
+  final m = jsonDecode(txt) as Map<String, dynamic>;
+  final zones = (m['z'] as List).map((e) => e.toString()).toList();
+  final admins = <String, List<String>>{};
+  (m['a'] as Map<String, dynamic>).forEach((k, v) {
+    final l = v as List;
+    admins[k] = [l[0].toString(), l[1].toString()];
+  });
+  final counts = <String, int>{};
+  final places = <GeoPlace>[];
+  for (final r in (m['p'] as List)) {
+    final l = r as List;
+    final ar = l[0].toString();
+    final la = l[1].toString();
+    var a = l[4].toString();
+    if (!admins.containsKey(a)) a = '';
+    counts[a] = (counts[a] ?? 0) + 1;
+    places.add(GeoPlace(
+      ar,
+      la,
+      a,
+      norm('$ar $la'),
+      (l[2] as num).toDouble(),
+      (l[3] as num).toDouble(),
+      (l[5] as num).toInt(),
+      (l[6] as num).toInt(),
+    ));
+  }
+  return GeoData(zones, admins, counts, places);
+}
+
+Future<Place?> manualPlaceDialog(
+    BuildContext context, String countryName, String initial) {
+  final nameC = TextEditingController(text: initial);
+  final latC = TextEditingController();
+  final lngC = TextEditingController();
+  return showDialog<Place>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('إدخال موقع يدوياً'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameC,
+              decoration:
+                  const InputDecoration(labelText: 'اسم المدينة أو البلدية'),
+            ),
+            TextField(
+              controller: latC,
+              keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true, signed: true),
+              decoration:
+                  const InputDecoration(labelText: 'خط العرض (مثال 36.45)'),
+            ),
+            TextField(
+              controller: lngC,
+              keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true, signed: true),
+              decoration:
+                  const InputDecoration(labelText: 'خط الطول (مثال 6.26)'),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'تجد الإحداثيات في خرائط جوجل: اضغط مطولاً على مكانك فتظهر الأرقام.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+        FilledButton(
+          onPressed: () {
+            final lat = double.tryParse(latC.text.trim().replaceAll(',', '.'));
+            final lng = double.tryParse(lngC.text.trim().replaceAll(',', '.'));
+            final nm = nameC.text.trim();
+            if (nm.isEmpty ||
+                lat == null ||
+                lng == null ||
+                lat.abs() > 90 ||
+                lng.abs() > 180) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content: Text('تأكد من الاسم ومن صحة الأرقام')));
+              return;
+            }
+            Navigator.pop(
+                ctx, Place(name: nm, sub: countryName, lat: lat, lng: lng));
+          },
+          child: const Text('حفظ'),
+        ),
+      ],
+    ),
+  );
+}
+
 // ======================= قائمة الدول =======================
 class CountryPage extends StatefulWidget {
   const CountryPage({super.key});
@@ -145,7 +311,7 @@ class _CountryPageState extends State<CountryPage> {
 
   Future<void> _open(Country c) async {
     final res = await Navigator.of(context).push<Place>(
-      MaterialPageRoute(builder: (_) => CityPage(country: c)),
+      MaterialPageRoute(builder: (_) => GeoCountryPage(country: c)),
     );
     if (res != null && mounted) Navigator.pop(context, res);
   }
@@ -190,6 +356,12 @@ class _CountryPageState extends State<CountryPage> {
         ));
       }
     }
+    children.add(const Padding(
+      padding: EdgeInsets.all(16),
+      child: Text('بيانات المواقع: GeoNames (CC BY 4.0)',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12, color: Colors.grey)),
+    ));
     return Scaffold(
       appBar: AppBar(
         title: TextField(
@@ -201,15 +373,211 @@ class _CountryPageState extends State<CountryPage> {
         ),
       ),
       body: ListView(
-        padding: EdgeInsets.only(
-            bottom: 24 + MediaQuery.of(context).padding.bottom),
+        padding:
+            EdgeInsets.only(bottom: 24 + MediaQuery.of(context).padding.bottom),
         children: children,
       ),
     );
   }
 }
 
-// ======================= مدن الدولة =======================
+// ======================= ولايات الدولة وبلدياتها (بدون إنترنت) =======================
+class GeoCountryPage extends StatefulWidget {
+  final Country country;
+  const GeoCountryPage({super.key, required this.country});
+
+  @override
+  State<GeoCountryPage> createState() => _GeoCountryPageState();
+}
+
+class _GeoCountryPageState extends State<GeoCountryPage> {
+  GeoData? _data;
+  bool _loading = true;
+  bool _failed = false;
+  String _q = '';
+  String? _admin;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final txt = await rootBundle
+          .loadString('assets/geo/${widget.country.code}.json');
+      final d = await compute(parseGeo, txt);
+      if (!mounted) return;
+      setState(() {
+        _data = d;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _failed = true;
+        _loading = false;
+      });
+    }
+  }
+
+  String _adminName(GeoData d, String code) {
+    final a = d.admins[code];
+    if (a == null) return 'أخرى';
+    return a[0].isNotEmpty ? a[0] : a[1];
+  }
+
+  Place _toPlace(GeoPlace g, GeoData d) {
+    final parts = <String>[];
+    if (g.ar.isNotEmpty && g.la.isNotEmpty) parts.add(g.la);
+    final an = _adminName(d, g.admin);
+    if (an != g.name && an != 'أخرى') parts.add(an);
+    parts.add(widget.country.name);
+    final zone =
+        (g.zone >= 0 && g.zone < d.zones.length) ? d.zones[g.zone] : '';
+    return Place(
+      name: g.name,
+      sub: parts.join('، '),
+      lat: g.lat,
+      lng: g.lng,
+      offsetSec: zoneOffsetSec(zone),
+    );
+  }
+
+  Widget _placeTile(GeoPlace g, GeoData d, {bool withAdmin = false}) {
+    final sub = <String>[];
+    if (g.ar.isNotEmpty && g.la.isNotEmpty) sub.add(g.la);
+    if (withAdmin) {
+      final an = _adminName(d, g.admin);
+      if (an != g.name) sub.add(an);
+    }
+    return ListTile(
+      leading: const Icon(Icons.location_city),
+      title: Text(g.name, style: const TextStyle(fontSize: 17)),
+      subtitle: sub.isEmpty ? null : Text(sub.join(' • ')),
+      onTap: () => Navigator.pop(context, _toPlace(g, d)),
+    );
+  }
+
+  Future<void> _online() async {
+    final res = await Navigator.of(context).push<Place>(
+      MaterialPageRoute(builder: (_) => CityPage(country: widget.country)),
+    );
+    if (res != null && mounted) Navigator.pop(context, res);
+  }
+
+  Future<void> _manual() async {
+    final res =
+        await manualPlaceDialog(context, widget.country.name, _q.trim());
+    if (res != null && mounted) Navigator.pop(context, res);
+  }
+
+  Widget _tools() => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        child: Wrap(
+          spacing: 8,
+          children: [
+            ActionChip(
+              avatar: const Icon(Icons.cloud_outlined, size: 18),
+              label: const Text('بحث عبر الإنترنت'),
+              onPressed: _online,
+            ),
+            ActionChip(
+              avatar: const Icon(Icons.edit_location_alt, size: 18),
+              label: const Text('إحداثيات يدوية'),
+              onPressed: _manual,
+            ),
+          ],
+        ),
+      );
+
+  Widget _content(GeoData d) {
+    final nq = norm(_q);
+    final bottom = MediaQuery.of(context).padding.bottom;
+    final flat = d.admins.length <= 1;
+    Widget? top;
+    late int count;
+    late Widget Function(int) builder;
+
+    if (nq.isNotEmpty) {
+      final res = d.places.where((p) => p.key.contains(nq)).toList()
+        ..sort((a, b) => b.pop.compareTo(a.pop));
+      final shown = res.take(200).toList();
+      count = shown.length;
+      builder = (i) => _placeTile(shown[i], d, withAdmin: true);
+    } else if (_admin == null && !flat) {
+      final keys = d.admins.keys.where((k) => (d.counts[k] ?? 0) > 0).toList();
+      keys.sort((a, b) =>
+          norm(_adminName(d, a)).compareTo(norm(_adminName(d, b))));
+      if ((d.counts[''] ?? 0) > 0) keys.add('');
+      count = keys.length;
+      builder = (i) {
+        final k = keys[i];
+        final a = d.admins[k];
+        final latin = (a != null && a[0].isNotEmpty) ? a[1] : '';
+        return ListTile(
+          leading: const Icon(Icons.map_outlined),
+          title: Text(_adminName(d, k), style: const TextStyle(fontSize: 18)),
+          subtitle: latin.isEmpty ? null : Text(latin),
+          trailing: Text(arDigits('${d.counts[k] ?? 0}'),
+              style: const TextStyle(fontSize: 14, color: Colors.grey)),
+          onTap: () => setState(() => _admin = k),
+        );
+      };
+    } else {
+      final list = d.places.where((p) => flat || p.admin == _admin).toList()
+        ..sort((a, b) => a.key.compareTo(b.key));
+      if (!flat) {
+        top = ListTile(
+          leading: const Icon(Icons.arrow_forward),
+          title: Text(_adminName(d, _admin ?? ''),
+              style: const TextStyle(fontWeight: FontWeight.w800)),
+          subtitle: const Text('اضغط للرجوع إلى القائمة'),
+          onTap: () => setState(() => _admin = null),
+        );
+      }
+      count = list.length;
+      builder = (i) => _placeTile(list[i], d);
+    }
+
+    return Column(
+      children: [
+        if (top != null) top,
+        _tools(),
+        Expanded(
+          child: ListView.builder(
+            padding: EdgeInsets.only(bottom: 24 + bottom),
+            itemCount: count,
+            itemBuilder: (ctx, i) => builder(i),
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_failed) return CityPage(country: widget.country);
+    final d = _data;
+    return Scaffold(
+      appBar: AppBar(
+        title: TextField(
+          onChanged: (v) => setState(() => _q = v),
+          decoration: InputDecoration(
+            hintText: '${widget.country.flag} ابحث في ${widget.country.name}',
+            border: InputBorder.none,
+          ),
+        ),
+      ),
+      body: (_loading || d == null)
+          ? const Center(child: CircularProgressIndicator())
+          : _content(d),
+    );
+  }
+}
+
+// ======================= البحث عبر الإنترنت داخل دولة =======================
 class CityPage extends StatefulWidget {
   final Country country;
   const CityPage({super.key, required this.country});
@@ -294,74 +662,8 @@ class _CityPageState extends State<CityPage> {
   }
 
   Future<void> _manual() async {
-    final nameC = TextEditingController(text: _c.text.trim());
-    final latC = TextEditingController();
-    final lngC = TextEditingController();
-    final res = await showDialog<Place>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('إدخال موقع يدوياً'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameC,
-                decoration: const InputDecoration(
-                    labelText: 'اسم المدينة أو البلدية'),
-              ),
-              TextField(
-                controller: latC,
-                keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true, signed: true),
-                decoration: const InputDecoration(
-                    labelText: 'خط العرض (مثال 36.45)'),
-              ),
-              TextField(
-                controller: lngC,
-                keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true, signed: true),
-                decoration: const InputDecoration(
-                    labelText: 'خط الطول (مثال 6.26)'),
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                'تجد الإحداثيات في خرائط جوجل: اضغط مطولاً على مكانك فتظهر الأرقام في الأعلى أو الأسفل.',
-                style: TextStyle(fontSize: 12),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('إلغاء')),
-          FilledButton(
-            onPressed: () {
-              final lat =
-                  double.tryParse(latC.text.trim().replaceAll(',', '.'));
-              final lng =
-                  double.tryParse(lngC.text.trim().replaceAll(',', '.'));
-              final nm = nameC.text.trim();
-              if (nm.isEmpty ||
-                  lat == null ||
-                  lng == null ||
-                  lat.abs() > 90 ||
-                  lng.abs() > 180) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text('تأكد من الاسم ومن صحة الأرقام')));
-                return;
-              }
-              Navigator.pop(
-                ctx,
-                Place(name: nm, sub: widget.country.name, lat: lat, lng: lng),
-              );
-            },
-            child: const Text('حفظ'),
-          ),
-        ],
-      ),
-    );
+    final res = await manualPlaceDialog(
+        context, widget.country.name, _c.text.trim());
     if (res != null && mounted) Navigator.pop(context, res);
   }
 
@@ -393,14 +695,15 @@ class _CityPageState extends State<CityPage> {
             Padding(
               padding: const EdgeInsets.all(20),
               child: Text(
-                'ابحث في ${widget.country.name}: اكتب حرفين على الأقل من اسم مدينتك أو بلديتك. وإن لم يظهر الاسم بالعربية فجرّب بالحروف اللاتينية.',
+                'ابحث في ${widget.country.name}: اكتب حرفين على الأقل. وإن لم يظهر الاسم بالعربية فجرّب بالحروف اللاتينية.',
                 style: const TextStyle(fontSize: 15),
               ),
             ),
           if (_searched && _res.isEmpty)
             const Padding(
               padding: EdgeInsets.all(20),
-              child: Text('لا توجد نتائج. جرّب كتابة الاسم بشكل آخر، أو أدخل الإحداثيات يدوياً بالزر أدناه.',
+              child: Text(
+                  'لا توجد نتائج. جرّب كتابة الاسم بشكل آخر، أو أدخل الإحداثيات يدوياً.',
                   style: TextStyle(fontSize: 15)),
             ),
           for (final p in _res)
