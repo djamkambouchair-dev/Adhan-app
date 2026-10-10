@@ -188,6 +188,7 @@ class _MonthlyPageState extends State<MonthlyPage> {
   Widget build(BuildContext context) {
     final c = palettes[themeIdx.value];
     final data = _compute();
+    final bottomInset = MediaQuery.of(context).padding.bottom;
     const heads = ['الفجر', 'الشروق', 'الظهر', 'العصر', 'المغرب', 'العشاء'];
     return Scaffold(
       appBar: AppBar(title: Text('المواقيت - ${widget.place.name}')),
@@ -241,7 +242,7 @@ class _MonthlyPageState extends State<MonthlyPage> {
             ),
             Expanded(
               child: ListView.builder(
-                padding: const EdgeInsets.only(bottom: 16),
+                padding: EdgeInsets.only(bottom: 24 + bottomInset),
                 itemCount: data.length,
                 itemBuilder: (ctx, i) => _line(i + 1, data[i], c),
               ),
@@ -299,6 +300,7 @@ class _HijriCalendarPageState extends State<HijriCalendarPage> {
   @override
   Widget build(BuildContext context) {
     final c = palettes[themeIdx.value];
+    final bottomInset = MediaQuery.of(context).padding.bottom;
     final startJ = hijriToJdn(_y, _m, 1);
     final nextJ =
         _m == 12 ? hijriToJdn(_y + 1, 1, 1) : hijriToJdn(_y, _m + 1, 1);
@@ -391,7 +393,7 @@ class _HijriCalendarPageState extends State<HijriCalendarPage> {
       body: Container(
         decoration: pageBg(c),
         child: ListView(
-          padding: const EdgeInsets.only(bottom: 24),
+          padding: EdgeInsets.only(bottom: 32 + bottomInset),
           children: [
             Row(
               children: [
