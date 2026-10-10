@@ -2,32 +2,10 @@ import 'package:adhan/adhan.dart';
 import 'package:flutter/material.dart';
 import 'main.dart';
 
-const gregMonths = [
-  'يناير',
-  'فبراير',
-  'مارس',
-  'أبريل',
-  'مايو',
-  'يونيو',
-  'يوليو',
-  'أغسطس',
-  'سبتمبر',
-  'أكتوبر',
-  'نوفمبر',
-  'ديسمبر',
-];
-
-const occasions = [
-  [1, 1, 'رأس السنة الهجرية'],
-  [1, 10, 'يوم عاشوراء'],
-  [3, 12, 'المولد النبوي الشريف'],
-  [7, 27, 'ذكرى الإسراء والمعراج'],
-  [8, 15, 'ليلة النصف من شعبان'],
-  [9, 1, 'أول رمضان'],
-  [9, 27, 'ليلة القدر'],
-  [10, 1, 'عيد الفطر'],
-  [12, 9, 'يوم عرفة'],
-  [12, 10, 'عيد الأضحى'],
+// [الشهر الهجري، اليوم] ؛ عناوينها في l10n بالمفاتيح oc0..oc9
+const occasions = <List<int>>[
+  [1, 1], [1, 10], [3, 12], [7, 27], [8, 15],
+  [9, 1], [9, 27], [10, 1], [12, 9], [12, 10],
 ];
 
 int hijriToJdn(int y, int m, int d) =>
@@ -54,6 +32,9 @@ BoxDecoration pageBg(AppPalette c) => BoxDecoration(
         stops: const [0.0, 0.5, 1.0],
       ),
     );
+
+IconData prevIcon() => isAr ? Icons.chevron_right : Icons.chevron_left;
+IconData nextIcon() => isAr ? Icons.chevron_left : Icons.chevron_right;
 
 // ======================= الجدول الشهري =======================
 class MonthlyPage extends StatefulWidget {
@@ -104,7 +85,7 @@ class _MonthlyPageState extends State<MonthlyPage> {
     });
   }
 
-  DateTime _wall(DateTime t) => t.isUtc ? t : t.toUtc().add(_off);
+  DateTime _wall(DateTime x) => x.isUtc ? x : x.toUtc().add(_off);
 
   List<List<DateTime>> _compute() {
     final p = widget.place;
@@ -132,14 +113,14 @@ class _MonthlyPageState extends State<MonthlyPage> {
     return out;
   }
 
-  String _fmt(DateTime t) {
-    final mm = t.minute.toString().padLeft(2, '0');
-    if (widget.use24) return '${t.hour.toString().padLeft(2, '0')}:$mm';
-    final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
+  String _fmt(DateTime x) {
+    final mm = x.minute.toString().padLeft(2, '0');
+    if (widget.use24) return '${x.hour.toString().padLeft(2, '0')}:$mm';
+    final h = x.hour % 12 == 0 ? 12 : x.hour % 12;
     return '$h:$mm';
   }
 
-  Widget _line(int day, List<DateTime> t, AppPalette c) {
+  Widget _line(int day, List<DateTime> tm, AppPalette c) {
     final date = DateTime.utc(_y, _m, day);
     final isToday =
         _y == _today.year && _m == _today.month && day == _today.day;
@@ -161,14 +142,14 @@ class _MonthlyPageState extends State<MonthlyPage> {
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
                         color: fg)),
-                Text(weekdayNames[date.weekday - 1],
+                Text(abbr(weekdayNames[date.weekday - 1]),
                     style: TextStyle(
                         fontSize: 11,
                         color: isToday ? Colors.white70 : c.soft)),
               ],
             ),
           ),
-          for (final x in t)
+          for (final x in tm)
             Expanded(
               child: Center(
                 child: Text(_fmt(x),
@@ -189,9 +170,9 @@ class _MonthlyPageState extends State<MonthlyPage> {
     final c = palettes[themeIdx.value];
     final data = _compute();
     final bottomInset = MediaQuery.of(context).padding.bottom;
-    const heads = ['الفجر', 'الشروق', 'الظهر', 'العصر', 'المغرب', 'العشاء'];
+    final pname = widget.place.gps ? t('my_location') : widget.place.name;
     return Scaffold(
-      appBar: AppBar(title: Text('المواقيت - ${widget.place.name}')),
+      appBar: AppBar(title: Text(t('monthly_title', [pname]))),
       body: Container(
         decoration: pageBg(c),
         child: Column(
@@ -201,7 +182,7 @@ class _MonthlyPageState extends State<MonthlyPage> {
               child: Row(
                 children: [
                   IconButton(
-                    icon: Icon(Icons.chevron_right, color: c.text, size: 32),
+                    icon: Icon(prevIcon(), color: c.text, size: 32),
                     onPressed: () => _shift(-1),
                   ),
                   Expanded(
@@ -214,7 +195,7 @@ class _MonthlyPageState extends State<MonthlyPage> {
                     ),
                   ),
                   IconButton(
-                    icon: Icon(Icons.chevron_left, color: c.text, size: 32),
+                    icon: Icon(nextIcon(), color: c.text, size: 32),
                     onPressed: () => _shift(1),
                   ),
                 ],
@@ -227,14 +208,17 @@ class _MonthlyPageState extends State<MonthlyPage> {
               child: Row(
                 children: [
                   const SizedBox(width: 64),
-                  for (final h in heads)
+                  for (int i = 0; i < 6; i++)
                     Expanded(
                       child: Center(
-                        child: Text(h,
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                                color: c.text)),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(prayerName(i),
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: c.text)),
+                        ),
                       ),
                     ),
                 ],
@@ -309,15 +293,8 @@ class _HijriCalendarPageState extends State<HijriCalendarPage> {
     final startCol = (firstG + 1) % 7;
     final g1 = gregFromJdn(firstG);
     final g2 = gregFromJdn(firstG + len - 1);
-    const dayHeads = [
-      'الأحد',
-      'الاثنين',
-      'الثلاثاء',
-      'الأربعاء',
-      'الخميس',
-      'الجمعة',
-      'السبت',
-    ];
+    final wd = weekdayNames;
+    final dayHeads = [wd[6], wd[0], wd[1], wd[2], wd[3], wd[4], wd[5]];
 
     final cells = <Widget>[];
     for (int i = 0; i < startCol; i++) {
@@ -354,10 +331,9 @@ class _HijriCalendarPageState extends State<HijriCalendarPage> {
     final today0 = DateTime.utc(
         widget.today.year, widget.today.month, widget.today.day);
     final items = <Widget>[];
-    for (final o in occasions) {
-      final om = o[0] as int;
-      final od = o[1] as int;
-      final title = o[2] as String;
+    for (int k = 0; k < occasions.length; k++) {
+      final om = occasions[k][0];
+      final od = occasions[k][1];
       final gd = gregFromJdn(hijriToJdn(_y, om, od) - widget.hcorr);
       final past = gd.isBefore(today0);
       items.add(
@@ -377,7 +353,7 @@ class _HijriCalendarPageState extends State<HijriCalendarPage> {
                   style: TextStyle(
                       fontSize: 13, color: past ? c.soft : c.text)),
               const SizedBox(height: 2),
-              Text('$od ${hijriMonths[om - 1]} : $title',
+              Text(arDigits('$od ${hijriMonths[om - 1]} : ${t('oc$k')}'),
                   style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
@@ -389,7 +365,7 @@ class _HijriCalendarPageState extends State<HijriCalendarPage> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('التقويم الهجري')),
+      appBar: AppBar(title: Text(t('hijri_calendar'))),
       body: Container(
         decoration: pageBg(c),
         child: ListView(
@@ -398,7 +374,7 @@ class _HijriCalendarPageState extends State<HijriCalendarPage> {
             Row(
               children: [
                 IconButton(
-                  icon: Icon(Icons.chevron_right, color: c.text, size: 32),
+                  icon: Icon(prevIcon(), color: c.text, size: 32),
                   onPressed: () => _shift(-1),
                 ),
                 Expanded(
@@ -416,7 +392,7 @@ class _HijriCalendarPageState extends State<HijriCalendarPage> {
                   ),
                 ),
                 IconButton(
-                  icon: Icon(Icons.chevron_left, color: c.text, size: 32),
+                  icon: Icon(nextIcon(), color: c.text, size: 32),
                   onPressed: () => _shift(1),
                 ),
               ],
@@ -428,11 +404,14 @@ class _HijriCalendarPageState extends State<HijriCalendarPage> {
                   for (final h in dayHeads)
                     Expanded(
                       child: Center(
-                        child: Text(h,
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                                color: c.text)),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(abbr(h),
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: c.text)),
+                        ),
                       ),
                     ),
                 ],
@@ -449,7 +428,7 @@ class _HijriCalendarPageState extends State<HijriCalendarPage> {
             const SizedBox(height: 16),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(arDigits('مناسبات عام $_y هـ'),
+              child: Text(t('occ_year', [arDigits('$_y')]),
                   style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
