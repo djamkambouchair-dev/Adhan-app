@@ -16,6 +16,7 @@ dependencies:
   flutter_local_notifications: 20.1.0
   timezone: ^0.10.0
   android_intent_plus: ^5.2.0
+  sensors_plus: ^6.1.1
 
 flutter:
   uses-material-design: true
