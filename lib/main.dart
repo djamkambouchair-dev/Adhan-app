@@ -4,6 +4,7 @@ import 'dart:ui' show PlatformDispatcher;
 import 'package:adhan/adhan.dart';
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
@@ -19,17 +20,7 @@ import 'settings_page.dart';
 export 'l10n.dart';
 
 // ---------------- طرق الحساب ----------------
-const methodKeys = [
-  'mwl',
-  'umm',
-  'egy',
-  'kar',
-  'isna',
-  'dxb',
-  'qat',
-  'kwt',
-  'sgp',
-];
+const methodKeys = ['mwl', 'umm', 'egy', 'kar', 'isna', 'dxb', 'qat', 'kwt', 'sgp'];
 
 final Map<String, CalculationMethod> methods = {
   'mwl': CalculationMethod.muslim_world_league,
@@ -54,6 +45,10 @@ const legacyMethods = {
   'الكويت': 'kwt',
   'سنغافورة': 'sgp',
 };
+
+// جسر الخدمة الأصلية للإشعار الدائم
+const MethodChannel fgs = MethodChannel('adhan/fgs');
+const Color notifGreen = Color(0xFF12B76A);
 
 // ---------------- الإعدادات ----------------
 class AppSettings extends ChangeNotifier {
@@ -244,7 +239,7 @@ const String persistChannelId = 'next_prayer_v1';
 Future<void> initNotifications() async {
   tzdata.initializeTimeZones();
   const init = InitializationSettings(
-    android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+    android: AndroidInitializationSettings('ic_stat_mosque'),
   );
   await notif.initialize(settings: init);
   final a = notif.resolvePlatformSpecificImplementation<
@@ -289,6 +284,8 @@ NotificationDetails adhanDetails() => const NotificationDetails(
         audioAttributesUsage: AudioAttributesUsage.alarm,
         category: AndroidNotificationCategory.alarm,
         visibility: NotificationVisibility.public,
+        icon: 'ic_stat_mosque',
+        color: notifGreen,
       ),
     );
 
@@ -312,6 +309,9 @@ NotificationDetails persistDetails(DateTime target, int timeoutMs) {
       timeoutAfter: timeoutMs,
       category: AndroidNotificationCategory.status,
       visibility: NotificationVisibility.public,
+      icon: 'ic_stat_mosque',
+      color: notifGreen,
+      colorized: true,
     ),
   );
 }
@@ -481,7 +481,7 @@ class AdhanApp extends StatelessWidget {
           useMaterial3: true,
         ),
         builder: (context, child) =>
-            Directionality(textDirection: TextDirection.rtl, child: child!),
+            Directionality(textDirection: appDir, child: child!),
         home: const HomePage(),
       ),
     );
@@ -670,10 +670,10 @@ class _HomePageState extends State<HomePage> {
       await notif.cancelAll();
       final off = _offset(p);
       final nowUtc = DateTime.now().toUtc();
-      final days = _upcoming(7);
+      final days = _upcoming(14);
       final mode = await scheduleMode();
       if (cfg.adhanOn) {
-        for (int d = 0; d < days.length; d++) {
+        for (int d = 0; d < 7; d++) {
           for (int i = 0; i < 5; i++) {
             if (!cfg.prayerOn[i]) continue;
             final instant = days[d][i];
@@ -690,13 +690,51 @@ class _HomePageState extends State<HomePage> {
         }
       }
       if (cfg.persistOn) {
-        await _schedulePersistent(days, off, nowUtc, mode);
+        final ok = await _syncPersistentNative(days, off);
+        if (!ok) {
+          await _schedulePersistent(
+              days.take(7).toList(), off, nowUtc, mode);
+        }
+      } else {
+        try {
+          await fgs.invokeMethod('stop');
+        } catch (_) {}
       }
     } catch (e) {
       _snack(t('schedule_failed', [e.toString()]));
     }
   }
 
+  // الخدمة الأصلية: تعيد الإشعار فور مسحه وتحدّثه عند كل صلاة
+  Future<bool> _syncPersistentNative(
+      List<List<DateTime>> days, Duration off) async {
+    try {
+      final p = _place!;
+      final where = p.gps ? t('my_location') : p.name;
+      final nowUtc = DateTime.now().toUtc();
+      final list = <Map<String, dynamic>>[];
+      for (final d in days) {
+        for (int i = 0; i < 5; i++) {
+          final inst = d[i];
+          if (!inst.isAfter(nowUtc)) continue;
+          list.add({
+            't': inst.millisecondsSinceEpoch,
+            'title': t('next_title', [adhanName(i)]),
+            'body': '${_fmt(inst.add(off))}  •  $where',
+          });
+        }
+      }
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString('persistEvents', jsonEncode(list));
+      await sp.setBool('persistOn', true);
+      await fgs.invokeMethod('start');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // بديل احتياطي إن تعذر وجود الخدمة الأصلية
   Future<void> _schedulePersistent(List<List<DateTime>> days, Duration off,
       DateTime nowUtc, AndroidScheduleMode mode) async {
     final p = _place!;
@@ -797,23 +835,20 @@ class _HomePageState extends State<HomePage> {
     if (!mounted) return;
     await showDialog(
       context: context,
-      builder: (ctx) => Directionality(
-        textDirection: appDir,
-        child: AlertDialog(
-          title: Text(t('battery_title')),
-          content: Text(t('battery_body')),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx), child: Text(t('later'))),
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                _batterySettings();
-              },
-              child: Text(t('open_settings')),
-            ),
-          ],
-        ),
+      builder: (ctx) => AlertDialog(
+        title: Text(t('battery_title')),
+        content: Text(t('battery_body')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: Text(t('later'))),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _batterySettings();
+            },
+            child: Text(t('open_settings')),
+          ),
+        ],
       ),
     );
   }
@@ -897,30 +932,27 @@ class _HomePageState extends State<HomePage> {
   void _placeSheet() {
     showModalBottomSheet(
       context: context,
-      builder: (ctx) => Directionality(
-        textDirection: appDir,
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.public),
-                title: Text(t('choose_country_city')),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _pickCity();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.my_location),
-                title: Text(t('my_location_gps')),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _useGps();
-                },
-              ),
-            ],
-          ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.public),
+              title: Text(t('choose_country_city')),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickCity();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.my_location),
+              title: Text(t('my_location_gps')),
+              onTap: () {
+                Navigator.pop(ctx);
+                _useGps();
+              },
+            ),
+          ],
         ),
       ),
     );
