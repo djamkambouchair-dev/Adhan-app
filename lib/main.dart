@@ -9,7 +9,9 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
+import 'location_pages.dart';
 import 'pages.dart';
+import 'qibla_page.dart';
 
 const names = ['الفجر', 'الشروق', 'الظهر', 'العصر', 'المغرب', 'العشاء'];
 const adhanNames = ['الفجر', 'الظهر', 'العصر', 'المغرب', 'العشاء'];
@@ -823,7 +825,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _pickCity() async {
     final res = await Navigator.of(context).push<Place>(
-      MaterialPageRoute(builder: (_) => const SearchPage()),
+      MaterialPageRoute(builder: (_) => const CountryPage()),
     );
     if (res == null || !mounted) return;
     setState(() {
@@ -850,8 +852,8 @@ class _HomePageState extends State<HomePage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.search),
-              title: const Text('ابحث عن مدينة أو بلدية'),
+              leading: const Icon(Icons.public),
+              title: const Text('اختر الدولة ثم المدينة'),
               onTap: () {
                 Navigator.pop(ctx);
                 _pickCity();
@@ -887,6 +889,14 @@ class _HomePageState extends State<HomePage> {
         hanafi: _hanafi,
         use24: _use24,
       ),
+    ));
+  }
+
+  void _openQibla() {
+    final p = _place;
+    if (p == null) return;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => QiblaPage(place: p),
     ));
   }
 
@@ -1140,8 +1150,8 @@ class _HomePageState extends State<HomePage> {
             else ...[
               FilledButton.icon(
                 onPressed: _pickCity,
-                icon: const Icon(Icons.search),
-                label: const Text('ابحث عن مدينة أو بلدية'),
+                icon: const Icon(Icons.public),
+                label: const Text('اختر الدولة ثم المدينة'),
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
@@ -1260,7 +1270,7 @@ class _HomePageState extends State<HomePage> {
           ),
           IconButton(
             icon: Icon(Icons.explore_outlined, color: c.text, size: 30),
-            onPressed: () => _soon('القبلة'),
+            onPressed: _openQibla,
           ),
         ],
       ),
@@ -1431,6 +1441,7 @@ class _HomePageState extends State<HomePage> {
                 _dItem(Icons.calendar_month, 'التقويم الهجري', _openHijri),
                 const Divider(),
                 _dItem(Icons.calendar_view_month, 'شهري', _openMonthly),
+                _dItem(Icons.explore, 'القبلة', _openQibla),
                 _dItem(Icons.place, 'المواقع', _placeSheet),
                 _dItem(Icons.music_note, 'أصوات الأذان',
                     () => _soon('أصوات الأذان')),
@@ -1453,123 +1464,6 @@ class _HomePageState extends State<HomePage> {
       key: _sk,
       drawer: _place == null ? null : _drawer(),
       body: _place == null ? SafeArea(child: _welcome()) : _home(),
-    );
-  }
-}
-
-// ---------------- صفحة البحث ----------------
-class SearchPage extends StatefulWidget {
-  const SearchPage({super.key});
-
-  @override
-  State<SearchPage> createState() => _SearchPageState();
-}
-
-class _SearchPageState extends State<SearchPage> {
-  final _c = TextEditingController();
-  Timer? _deb;
-  List<Place> _res = [];
-  bool _loading = false;
-  String? _err;
-
-  @override
-  void dispose() {
-    _deb?.cancel();
-    _c.dispose();
-    super.dispose();
-  }
-
-  void _onChanged(String q) {
-    _deb?.cancel();
-    if (q.trim().length < 2) {
-      setState(() {
-        _res = [];
-        _err = null;
-      });
-      return;
-    }
-    _deb = Timer(const Duration(milliseconds: 500), () => _search(q.trim()));
-  }
-
-  Future<void> _search(String q) async {
-    setState(() {
-      _loading = true;
-      _err = null;
-    });
-    try {
-      final uri = Uri.https('geocoding-api.open-meteo.com', '/v1/search', {
-        'name': q,
-        'count': '15',
-        'language': 'ar',
-        'format': 'json',
-      });
-      final r = await http.get(uri).timeout(const Duration(seconds: 15));
-      final data = jsonDecode(r.body) as Map<String, dynamic>;
-      final list = (data['results'] as List?) ?? [];
-      final out = list.map((e) {
-        final m = e as Map<String, dynamic>;
-        final parts = <String>[
-          if (m['admin1'] != null) m['admin1'].toString(),
-          if (m['country'] != null) m['country'].toString(),
-        ];
-        return Place(
-          name: m['name'].toString(),
-          sub: parts.join('، '),
-          lat: (m['latitude'] as num).toDouble(),
-          lng: (m['longitude'] as num).toDouble(),
-        );
-      }).toList();
-      if (!mounted) return;
-      setState(() {
-        _res = out;
-        _loading = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _err = 'تعذر البحث. تأكد من اتصالك بالإنترنت';
-        _loading = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: TextField(
-          controller: _c,
-          autofocus: true,
-          onChanged: _onChanged,
-          decoration: const InputDecoration(
-            hintText: 'اكتب اسم المدينة أو البلدية',
-            border: InputBorder.none,
-          ),
-        ),
-      ),
-      body: Column(
-        children: [
-          if (_loading) const LinearProgressIndicator(),
-          if (_err != null)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(_err!, style: const TextStyle(color: Colors.red)),
-            ),
-          Expanded(
-            child: ListView(
-              children: [
-                for (final p in _res)
-                  ListTile(
-                    leading: const Icon(Icons.location_city),
-                    title: Text(p.name),
-                    subtitle: p.sub.isEmpty ? null : Text(p.sub),
-                    onTap: () => Navigator.pop(context, p),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
