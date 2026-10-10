@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' show PlatformDispatcher;
 import 'package:adhan/adhan.dart';
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/material.dart';
@@ -9,47 +10,110 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
+import 'l10n.dart';
 import 'location_pages.dart';
 import 'pages.dart';
 import 'qibla_page.dart';
+import 'settings_page.dart';
 
-const names = ['الفجر', 'الشروق', 'الظهر', 'العصر', 'المغرب', 'العشاء'];
-const adhanNames = ['الفجر', 'الظهر', 'العصر', 'المغرب', 'العشاء'];
-const weekdayNames = [
-  'الاثنين',
-  'الثلاثاء',
-  'الأربعاء',
-  'الخميس',
-  'الجمعة',
-  'السبت',
-  'الأحد',
-];
-const hijriMonths = [
-  'محرم',
-  'صفر',
-  'ربيع الأول',
-  'ربيع الثاني',
-  'جمادى الأولى',
-  'جمادى الآخرة',
-  'رجب',
-  'شعبان',
-  'رمضان',
-  'شوال',
-  'ذو القعدة',
-  'ذو الحجة',
+export 'l10n.dart';
+
+// ---------------- طرق الحساب ----------------
+const methodKeys = [
+  'mwl',
+  'umm',
+  'egy',
+  'kar',
+  'isna',
+  'dxb',
+  'qat',
+  'kwt',
+  'sgp',
 ];
 
 final Map<String, CalculationMethod> methods = {
-  'رابطة العالم الإسلامي': CalculationMethod.muslim_world_league,
-  'أم القرى (مكة)': CalculationMethod.umm_al_qura,
-  'الهيئة المصرية': CalculationMethod.egyptian,
-  'جامعة كراتشي': CalculationMethod.karachi,
-  'أمريكا الشمالية (ISNA)': CalculationMethod.north_america,
-  'الإمارات': CalculationMethod.dubai,
-  'قطر': CalculationMethod.qatar,
-  'الكويت': CalculationMethod.kuwait,
-  'سنغافورة': CalculationMethod.singapore,
+  'mwl': CalculationMethod.muslim_world_league,
+  'umm': CalculationMethod.umm_al_qura,
+  'egy': CalculationMethod.egyptian,
+  'kar': CalculationMethod.karachi,
+  'isna': CalculationMethod.north_america,
+  'dxb': CalculationMethod.dubai,
+  'qat': CalculationMethod.qatar,
+  'kwt': CalculationMethod.kuwait,
+  'sgp': CalculationMethod.singapore,
 };
+
+const legacyMethods = {
+  'رابطة العالم الإسلامي': 'mwl',
+  'أم القرى (مكة)': 'umm',
+  'الهيئة المصرية': 'egy',
+  'جامعة كراتشي': 'kar',
+  'أمريكا الشمالية (ISNA)': 'isna',
+  'الإمارات': 'dxb',
+  'قطر': 'qat',
+  'الكويت': 'kwt',
+  'سنغافورة': 'sgp',
+};
+
+// ---------------- الإعدادات ----------------
+class AppSettings extends ChangeNotifier {
+  String method = 'mwl';
+  bool hanafi = false;
+  bool adhanOn = true;
+  bool persistOn = true;
+  bool use24 = true;
+  int hcorr = 0;
+  List<bool> prayerOn = [true, true, true, true, true];
+  String lang = 'ar';
+
+  Future<void> load() async {
+    final sp = await SharedPreferences.getInstance();
+    final m = sp.getString('method');
+    if (m != null) {
+      method = methods.containsKey(m) ? m : (legacyMethods[m] ?? 'mwl');
+    }
+    hanafi = sp.getBool('hanafi') ?? false;
+    adhanOn = sp.getBool('adhanOn') ?? true;
+    persistOn = sp.getBool('persistOn') ?? true;
+    use24 = sp.getBool('use24') ?? true;
+    hcorr = sp.getInt('hcorr') ?? 0;
+    final po = sp.getStringList('prayerOn');
+    if (po != null && po.length == 5) {
+      prayerOn = po.map((e) => e == '1').toList();
+    }
+    final l = sp.getString('lang');
+    if (l != null && langs.contains(l)) {
+      lang = l;
+    } else {
+      final dl = PlatformDispatcher.instance.locale.languageCode;
+      lang = langs.contains(dl) ? dl : 'ar';
+    }
+    currentLang = lang;
+  }
+
+  Future<void> save() async {
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString('method', method);
+    await sp.setBool('hanafi', hanafi);
+    await sp.setBool('adhanOn', adhanOn);
+    await sp.setBool('persistOn', persistOn);
+    await sp.setBool('use24', use24);
+    await sp.setInt('hcorr', hcorr);
+    await sp.setString('lang', lang);
+    await sp.setStringList(
+        'prayerOn', prayerOn.map((e) => e ? '1' : '0').toList());
+  }
+
+  void update(VoidCallback f) {
+    f();
+    currentLang = lang;
+    save();
+    notifyListeners();
+  }
+}
+
+final AppSettings cfg = AppSettings();
+final ValueNotifier<String> placeLabel = ValueNotifier<String>('');
 
 // ---------------- الثيمات ----------------
 class AppPalette {
@@ -170,15 +234,6 @@ List<int> hijriOf(DateTime g, int corr) {
   final d = l2 - (709 * m) ~/ 24;
   final y = 30 * n + j - 30;
   return [y, m, d];
-}
-
-String arDigits(String s) {
-  const west = '0123456789';
-  const east = '٠١٢٣٤٥٦٧٨٩';
-  return s.split('').map((ch) {
-    final i = west.indexOf(ch);
-    return i < 0 ? ch : east[i];
-  }).join();
 }
 
 // ---------------- الإشعارات ----------------
@@ -395,9 +450,12 @@ class SkylinePainter extends CustomPainter {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
+    await cfg.load();
+  } catch (_) {}
+  try {
     final sp = await SharedPreferences.getInstance();
-    final t = sp.getInt('theme') ?? 0;
-    if (t >= 0 && t < palettes.length) themeIdx.value = t;
+    final th = sp.getInt('theme') ?? 0;
+    if (th >= 0 && th < palettes.length) themeIdx.value = th;
   } catch (_) {}
   try {
     await initNotifications();
@@ -410,13 +468,16 @@ class AdhanApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<int>(
-      valueListenable: themeIdx,
-      builder: (context, i, _) => MaterialApp(
+    return ListenableBuilder(
+      listenable: Listenable.merge([cfg, themeIdx]),
+      builder: (context, _) => MaterialApp(
         debugShowCheckedModeBanner: false,
+        title: t('app_name'),
         theme: ThemeData(
           colorSchemeSeed: const Color(0xFF0B6E4F),
-          brightness: isDarkTheme(i) ? Brightness.dark : Brightness.light,
+          brightness: isDarkTheme(themeIdx.value)
+              ? Brightness.dark
+              : Brightness.light,
           useMaterial3: true,
         ),
         builder: (context, child) =>
@@ -437,13 +498,6 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final GlobalKey<ScaffoldState> _sk = GlobalKey<ScaffoldState>();
   Place? _place;
-  String _method = 'رابطة العالم الإسلامي';
-  bool _hanafi = false;
-  bool _adhanOn = true;
-  bool _persistOn = true;
-  bool _use24 = true;
-  int _hcorr = 0;
-  List<bool> _prayerOn = [true, true, true, true, true];
   List<DateTime> _times = [];
   DateTime? _tomorrowFajr;
   int _calcDay = -1;
@@ -457,19 +511,35 @@ class _HomePageState extends State<HomePage> {
   Duration _offset(Place p) =>
       p.gps ? DateTime.now().timeZoneOffset : Duration(seconds: p.offsetSec);
 
-  DateTime _wall(DateTime t, Duration off) =>
-      t.isUtc ? t : t.toUtc().add(off);
+  DateTime _wall(DateTime x, Duration off) => x.isUtc ? x : x.toUtc().add(off);
+
+  void _setPlace(Place p) {
+    _place = p;
+    placeLabel.value = p.gps ? '' : p.name;
+  }
 
   void _snack(String m) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
   }
 
-  void _soon(String s) => _snack('$s: قريباً بإذن الله');
+  void _soon(String s) => _snack(t('soon', [s]));
+
+  void _onCfg() {
+    if (!mounted) return;
+    setState(() => _recalc());
+    _scheduleAll();
+  }
+
+  void _onTheme() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void initState() {
     super.initState();
+    cfg.addListener(_onCfg);
+    themeIdx.addListener(_onTheme);
     _init();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
@@ -489,6 +559,8 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
+    cfg.removeListener(_onCfg);
+    themeIdx.removeListener(_onTheme);
     _timer?.cancel();
     super.dispose();
   }
@@ -496,20 +568,9 @@ class _HomePageState extends State<HomePage> {
   Future<void> _init() async {
     final sp = await SharedPreferences.getInstance();
     final raw = sp.getString('place');
-    final m = sp.getString('method');
-    if (m != null && methods.containsKey(m)) _method = m;
-    _hanafi = sp.getBool('hanafi') ?? false;
-    _adhanOn = sp.getBool('adhanOn') ?? true;
-    _persistOn = sp.getBool('persistOn') ?? true;
-    _use24 = sp.getBool('use24') ?? true;
-    _hcorr = sp.getInt('hcorr') ?? 0;
-    final po = sp.getStringList('prayerOn');
-    if (po != null && po.length == 5) {
-      _prayerOn = po.map((e) => e == '1').toList();
-    }
     if (raw != null) {
       try {
-        _place = Place.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+        _setPlace(Place.fromJson(jsonDecode(raw) as Map<String, dynamic>));
       } catch (_) {}
     }
     if (!mounted) return;
@@ -537,18 +598,6 @@ class _HomePageState extends State<HomePage> {
     if (p != null) await sp.setString('place', jsonEncode(p.toJson()));
   }
 
-  Future<void> _saveSettings() async {
-    final sp = await SharedPreferences.getInstance();
-    await sp.setString('method', _method);
-    await sp.setBool('hanafi', _hanafi);
-    await sp.setBool('adhanOn', _adhanOn);
-    await sp.setBool('persistOn', _persistOn);
-    await sp.setBool('use24', _use24);
-    await sp.setInt('hcorr', _hcorr);
-    await sp.setStringList(
-        'prayerOn', _prayerOn.map((e) => e ? '1' : '0').toList());
-  }
-
   void _recalc() {
     final p = _place;
     if (p == null) {
@@ -559,8 +608,8 @@ class _HomePageState extends State<HomePage> {
     final off = _offset(p);
     final now = DateTime.now().toUtc().add(off);
     final coords = Coordinates(p.lat, p.lng);
-    final params = methods[_method]!.getParameters();
-    params.madhab = _hanafi ? Madhab.hanafi : Madhab.shafi;
+    final params = methods[cfg.method]!.getParameters();
+    params.madhab = cfg.hanafi ? Madhab.hanafi : Madhab.shafi;
     final today = PrayerTimes(coords, DateComponents.from(now), params,
         utcOffset: off);
     final tmr = PrayerTimes(
@@ -600,8 +649,8 @@ class _HomePageState extends State<HomePage> {
     final p = _place!;
     final off = _offset(p);
     final coords = Coordinates(p.lat, p.lng);
-    final params = methods[_method]!.getParameters();
-    params.madhab = _hanafi ? Madhab.hanafi : Madhab.shafi;
+    final params = methods[cfg.method]!.getParameters();
+    params.madhab = cfg.hanafi ? Madhab.hanafi : Madhab.shafi;
     final wallNow = DateTime.now().toUtc().add(off);
     final out = <List<DateTime>>[];
     for (int d = 0; d < days; d++) {
@@ -609,7 +658,7 @@ class _HomePageState extends State<HomePage> {
       final pt = PrayerTimes(coords, DateComponents.from(date), params,
           utcOffset: off);
       final list = [pt.fajr, pt.dhuhr, pt.asr, pt.maghrib, pt.isha];
-      out.add(list.map((t) => _wall(t, off).subtract(off)).toList());
+      out.add(list.map((x) => _wall(x, off).subtract(off)).toList());
     }
     return out;
   }
@@ -623,16 +672,16 @@ class _HomePageState extends State<HomePage> {
       final nowUtc = DateTime.now().toUtc();
       final days = _upcoming(7);
       final mode = await scheduleMode();
-      if (_adhanOn) {
+      if (cfg.adhanOn) {
         for (int d = 0; d < days.length; d++) {
           for (int i = 0; i < 5; i++) {
-            if (!_prayerOn[i]) continue;
+            if (!cfg.prayerOn[i]) continue;
             final instant = days[d][i];
             if (!instant.isAfter(nowUtc)) continue;
             await notif.zonedSchedule(
               id: d * 10 + i,
-              title: 'حان الآن موعد أذان ${adhanNames[i]}',
-              body: p.gps ? 'حسب موقعك الحالي' : 'حسب توقيت ${p.name}',
+              title: t('adhan_title', [adhanName(i)]),
+              body: p.gps ? t('by_gps') : t('by_place', [p.name]),
               scheduledDate: tz.TZDateTime.from(instant, tz.UTC),
               notificationDetails: adhanDetails(),
               androidScheduleMode: mode,
@@ -640,17 +689,18 @@ class _HomePageState extends State<HomePage> {
           }
         }
       }
-      if (_persistOn) {
+      if (cfg.persistOn) {
         await _schedulePersistent(days, off, nowUtc, mode);
       }
     } catch (e) {
-      _snack('تعذرت الجدولة: $e');
+      _snack(t('schedule_failed', [e.toString()]));
     }
   }
 
   Future<void> _schedulePersistent(List<List<DateTime>> days, Duration off,
       DateTime nowUtc, AndroidScheduleMode mode) async {
     final p = _place!;
+    final where = p.gps ? t('my_location') : p.name;
     final ev = <MapEntry<int, DateTime>>[];
     for (final d in days) {
       for (int i = 0; i < 5; i++) {
@@ -668,8 +718,8 @@ class _HomePageState extends State<HomePage> {
     final cur = ev[firstNext];
     await notif.show(
       id: 199,
-      title: 'الصلاة القادمة: ${adhanNames[cur.key]}',
-      body: '${_fmt(cur.value.add(off))}  •  ${p.name}',
+      title: t('next_title', [adhanName(cur.key)]),
+      body: '${_fmt(cur.value.add(off))}  •  $where',
       notificationDetails: persistDetails(
         cur.value,
         cur.value.difference(nowUtc).inMilliseconds,
@@ -680,8 +730,8 @@ class _HomePageState extends State<HomePage> {
       final nxt = ev[k + 1];
       await notif.zonedSchedule(
         id: 200 + k - firstNext,
-        title: 'الصلاة القادمة: ${adhanNames[nxt.key]}',
-        body: '${_fmt(nxt.value.add(off))}  •  ${p.name}',
+        title: t('next_title', [adhanName(nxt.key)]),
+        body: '${_fmt(nxt.value.add(off))}  •  $where',
         scheduledDate: tz.TZDateTime.from(start, tz.UTC),
         notificationDetails: persistDetails(
           nxt.value,
@@ -696,12 +746,12 @@ class _HomePageState extends State<HomePage> {
     try {
       await notif.show(
         id: 999,
-        title: 'تجربة الأذان',
-        body: 'الله أكبر الله أكبر',
+        title: t('test_title'),
+        body: t('test_body'),
         notificationDetails: adhanDetails(),
       );
     } catch (e) {
-      _snack('تعذرت التجربة: $e');
+      _snack(t('test_failed', [e.toString()]));
     }
   }
 
@@ -709,16 +759,16 @@ class _HomePageState extends State<HomePage> {
     try {
       await notif.zonedSchedule(
         id: 998,
-        title: 'تجربة الأذان',
-        body: 'الله أكبر الله أكبر',
+        title: t('test_title'),
+        body: t('test_body'),
         scheduledDate:
             tz.TZDateTime.now(tz.UTC).add(const Duration(seconds: 60)),
         notificationDetails: adhanDetails(),
         androidScheduleMode: await scheduleMode(),
       );
-      _snack('سيصلك الأذان بعد دقيقة. اقفل الشاشة الآن');
+      _snack(t('test_in_1min'));
     } catch (e) {
-      _snack('تعذرت التجربة: $e');
+      _snack(t('test_failed', [e.toString()]));
     }
   }
 
@@ -747,24 +797,23 @@ class _HomePageState extends State<HomePage> {
     if (!mounted) return;
     await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('مهم لعمل الأذان'),
-        content: const Text(
-            'حتى يعمل الأذان والهاتف مقفل، اسمح للتطبيق بالعمل في الخلفية '
-            'وبدون تقييد البطارية. في بعض الهواتف (Xiaomi وHuawei وSamsung) '
-            'فعّل أيضاً "التشغيل التلقائي" من إعدادات التطبيق.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('لاحقاً')),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _batterySettings();
-            },
-            child: const Text('فتح الإعدادات'),
-          ),
-        ],
+      builder: (ctx) => Directionality(
+        textDirection: appDir,
+        child: AlertDialog(
+          title: Text(t('battery_title')),
+          content: Text(t('battery_body')),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: Text(t('later'))),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _batterySettings();
+              },
+              child: Text(t('open_settings')),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -777,7 +826,7 @@ class _HomePageState extends State<HomePage> {
     });
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
-        throw 'فعّل خدمة الموقع (GPS) في هاتفك ثم أعد المحاولة';
+        throw 'gps_off';
       }
       var perm = await Geolocator.checkPermission();
       if (perm == LocationPermission.denied) {
@@ -785,7 +834,7 @@ class _HomePageState extends State<HomePage> {
       }
       if (perm == LocationPermission.denied ||
           perm == LocationPermission.deniedForever) {
-        throw 'لم يتم السماح بالوصول للموقع. فعّله من إعدادات التطبيق';
+        throw 'gps_denied';
       }
       Position? pos;
       try {
@@ -798,14 +847,14 @@ class _HomePageState extends State<HomePage> {
       } catch (_) {
         pos = await Geolocator.getLastKnownPosition();
       }
-      if (pos == null) throw 'تعذر تحديد موقعك. جرّب في مكان مفتوح';
-      _place = Place(
-        name: 'موقعي الحالي',
+      if (pos == null) throw 'gps_fail';
+      _setPlace(Place(
+        name: 'GPS',
         sub: '',
         lat: pos.latitude,
         lng: pos.longitude,
         gps: true,
-      );
+      ));
       await _savePlace();
       if (!mounted) return;
       setState(() {
@@ -833,7 +882,8 @@ class _HomePageState extends State<HomePage> {
       _msg = null;
     });
     final off = await fetchOffset(res.lat, res.lng);
-    _place = res.withOffset(off ?? DateTime.now().timeZoneOffset.inSeconds);
+    _setPlace(
+        res.withOffset(off ?? DateTime.now().timeZoneOffset.inSeconds));
     await _savePlace();
     if (!mounted) return;
     setState(() {
@@ -847,27 +897,30 @@ class _HomePageState extends State<HomePage> {
   void _placeSheet() {
     showModalBottomSheet(
       context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.public),
-              title: const Text('اختر الدولة ثم المدينة'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _pickCity();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.my_location),
-              title: const Text('موقعي الحالي (GPS)'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _useGps();
-              },
-            ),
-          ],
+      builder: (ctx) => Directionality(
+        textDirection: appDir,
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.public),
+                title: Text(t('choose_country_city')),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickCity();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.my_location),
+                title: Text(t('my_location_gps')),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _useGps();
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -875,7 +928,7 @@ class _HomePageState extends State<HomePage> {
 
   void _openHijri() {
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => HijriCalendarPage(hcorr: _hcorr, today: _wallNow),
+      builder: (_) => HijriCalendarPage(hcorr: cfg.hcorr, today: _wallNow),
     ));
   }
 
@@ -885,9 +938,9 @@ class _HomePageState extends State<HomePage> {
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => MonthlyPage(
         place: p,
-        method: _method,
-        hanafi: _hanafi,
-        use24: _use24,
+        method: cfg.method,
+        hanafi: cfg.hanafi,
+        use24: cfg.use24,
       ),
     ));
   }
@@ -900,231 +953,28 @@ class _HomePageState extends State<HomePage> {
     ));
   }
 
-  // ---------------- اختيار الثيم ----------------
-  Widget _themePreview(AppPalette p, bool selected) {
-    return Container(
-      width: 96,
-      height: 72,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: selected ? const Color(0xFF0A9A0A) : Colors.black26,
-          width: selected ? 3 : 1,
-        ),
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: p.bg,
-          stops: const [0.0, 0.5, 1.0],
-        ),
+  void _openSettings() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => SettingsPage(
+        onChangeLocation: _placeSheet,
+        onTestNow: _testNow,
+        onTestLater: _testLater,
+        onBattery: _batterySettings,
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(11),
-        child: Stack(
-          children: [
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: 50,
-              child: CustomPaint(painter: SkylinePainter(p.skyline)),
-            ),
-            Positioned(
-              left: 8,
-              right: 8,
-              bottom: 22,
-              height: 8,
-              child: ColoredBox(color: p.row),
-            ),
-            const Positioned(
-              left: 8,
-              right: 8,
-              bottom: 11,
-              height: 8,
-              child: ColoredBox(color: Color(0xFF0A9A0A)),
-            ),
-            Positioned(
-              left: 8,
-              right: 8,
-              bottom: 0,
-              height: 8,
-              child: ColoredBox(color: p.row),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _themeDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('اختر الثيم'),
-        children: [
-          for (int i = 0; i < palettes.length; i++)
-            SimpleDialogOption(
-              onPressed: () async {
-                themeIdx.value = i;
-                Navigator.pop(ctx);
-                if (mounted) setState(() {});
-                final sp = await SharedPreferences.getInstance();
-                await sp.setInt('theme', i);
-              },
-              child: Row(
-                children: [
-                  _themePreview(palettes[i], themeIdx.value == i),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Text(palettes[i].name,
-                        style: const TextStyle(
-                            fontSize: 20, fontWeight: FontWeight.w700)),
-                  ),
-                  if (themeIdx.value == i)
-                    const Icon(Icons.check_circle, color: Color(0xFF0A9A0A)),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  // ---------------- الإعدادات ----------------
-  void _settings() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setS) {
-          void upd(VoidCallback f) {
-            setState(f);
-            setS(() {});
-            _saveSettings();
-            _scheduleAll();
-          }
-
-          return SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('طريقة الحساب',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  DropdownButton<String>(
-                    isExpanded: true,
-                    value: _method,
-                    items: [
-                      for (final k in methods.keys)
-                        DropdownMenuItem(value: k, child: Text(k)),
-                    ],
-                    onChanged: (v) {
-                      if (v == null) return;
-                      upd(() {
-                        _method = v;
-                        _recalc();
-                      });
-                    },
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('المذهب الحنفي في العصر'),
-                    value: _hanafi,
-                    onChanged: (v) => upd(() {
-                      _hanafi = v;
-                      _recalc();
-                    }),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('نظام 24 ساعة'),
-                    value: _use24,
-                    onChanged: (v) => upd(() => _use24 = v),
-                  ),
-                  Row(
-                    children: [
-                      const Expanded(child: Text('تصحيح التاريخ الهجري')),
-                      IconButton(
-                        icon: const Icon(Icons.remove_circle_outline),
-                        onPressed: _hcorr > -3 ? () => upd(() => _hcorr--) : null,
-                      ),
-                      Text(_hcorr > 0 ? '+$_hcorr' : '$_hcorr',
-                          style: const TextStyle(fontSize: 18)),
-                      IconButton(
-                        icon: const Icon(Icons.add_circle_outline),
-                        onPressed: _hcorr < 3 ? () => upd(() => _hcorr++) : null,
-                      ),
-                    ],
-                  ),
-                  const Divider(),
-                  const Text('الأذان والإشعارات',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('تفعيل الأذان'),
-                    value: _adhanOn,
-                    onChanged: (v) => upd(() => _adhanOn = v),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('إشعار دائم بالصلاة القادمة'),
-                    value: _persistOn,
-                    onChanged: (v) => upd(() => _persistOn = v),
-                  ),
-                  for (int i = 0; i < 5; i++)
-                    CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(adhanNames[i]),
-                      value: _prayerOn[i],
-                      onChanged: _adhanOn
-                          ? (v) => upd(() => _prayerOn[i] = v ?? true)
-                          : null,
-                    ),
-                  const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      _testNow();
-                    },
-                    icon: const Icon(Icons.volume_up),
-                    label: const Text('تجربة الأذان الآن'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      _testLater();
-                    },
-                    icon: const Icon(Icons.timer),
-                    label: const Text('تجربة بعد دقيقة (اقفل الشاشة)'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _batterySettings,
-                    icon: const Icon(Icons.battery_saver),
-                    label: const Text('السماح بالعمل في الخلفية (مهم)'),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
+    ));
   }
 
   // ---------------- الواجهة ----------------
-  String _fmt(DateTime t) {
-    final mm = t.minute.toString().padLeft(2, '0');
-    if (_use24) return '${t.hour.toString().padLeft(2, '0')}:$mm';
-    final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
-    return '$h:$mm ${t.hour < 12 ? 'ص' : 'م'}';
+  String _fmt(DateTime x) {
+    final mm = x.minute.toString().padLeft(2, '0');
+    if (cfg.use24) return '${x.hour.toString().padLeft(2, '0')}:$mm';
+    final h = x.hour % 12 == 0 ? 12 : x.hour % 12;
+    return '$h:$mm ${x.hour < 12 ? t('am') : t('pm')}';
   }
 
   String _hijriText() {
     final g = _wallNow;
-    final h = hijriOf(g, _hcorr);
+    final h = hijriOf(g, cfg.hcorr);
     final month = hijriMonths[(h[1] - 1).clamp(0, 11)];
     final wd = weekdayNames[g.weekday - 1];
     return arDigits('$wd ${h[2]} $month ${h[0]}');
@@ -1139,11 +989,13 @@ class _HomePageState extends State<HomePage> {
           children: [
             const Icon(Icons.mosque, size: 72, color: Color(0xFF0B6E4F)),
             const SizedBox(height: 16),
-            const Text('بسم الله',
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+            Text(t('bismillah'),
+                style:
+                    const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            const Text('اختر موقعك لحساب مواقيت الصلاة',
-                style: TextStyle(fontSize: 18)),
+            Text(t('choose_location_msg'),
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 18)),
             const SizedBox(height: 24),
             if (_busy)
               const CircularProgressIndicator()
@@ -1151,21 +1003,27 @@ class _HomePageState extends State<HomePage> {
               FilledButton.icon(
                 onPressed: _pickCity,
                 icon: const Icon(Icons.public),
-                label: const Text('اختر الدولة ثم المدينة'),
+                label: Text(t('choose_country_city')),
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
                 onPressed: _useGps,
                 icon: const Icon(Icons.my_location),
-                label: const Text('استخدم موقعي الحالي'),
+                label: Text(t('use_my_location')),
               ),
             ],
             if (_msg != null) ...[
               const SizedBox(height: 16),
-              Text(_msg!,
+              Text(t(_msg!),
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.red)),
             ],
+            const SizedBox(height: 24),
+            TextButton.icon(
+              onPressed: _openSettings,
+              icon: const Icon(Icons.translate),
+              label: Text(t('language')),
+            ),
           ],
         ),
       ),
@@ -1260,11 +1118,14 @@ class _HomePageState extends State<HomePage> {
             child: GestureDetector(
               onTap: _openHijri,
               child: Center(
-                child: Text(_hijriText(),
-                    style: TextStyle(
-                        color: c.text,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700)),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(_hijriText(),
+                      style: TextStyle(
+                          color: c.text,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700)),
+                ),
               ),
             ),
           ),
@@ -1301,11 +1162,11 @@ class _HomePageState extends State<HomePage> {
     for (int i = 0; i < 6; i++) {
       final hl = !tomorrow && i == nextIdx;
       if (hl) rows.add(_cdWidget(left, c));
-      final nm = (i == 2 && friday) ? 'الجمعة' : names[i];
+      final nm = (i == 2 && friday) ? t('jumua') : prayerName(i);
       rows.add(_row(nm, _fmt(_times[i]), c, hl: hl));
     }
     if (tomorrow) rows.add(_cdWidget(left, c));
-    rows.add(_row('الفجر', _fmt(tmrFajr), c, hl: tomorrow, small: true));
+    rows.add(_row(prayerName(0), _fmt(tmrFajr), c, hl: tomorrow, small: true));
 
     return Stack(
       children: [
@@ -1339,7 +1200,7 @@ class _HomePageState extends State<HomePage> {
               const SizedBox(height: 12),
               Center(
                 child: Text(
-                  _adhanOn ? 'الأذان مفعّل 🔔' : 'الأذان متوقف 🔕',
+                  cfg.adhanOn ? t('adhan_on_label') : t('adhan_off_label'),
                   style: TextStyle(color: c.soft),
                 ),
               ),
@@ -1350,9 +1211,9 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _dItem(IconData ic, String t, VoidCallback f) => ListTile(
+  Widget _dItem(IconData ic, String label, VoidCallback f) => ListTile(
         leading: Icon(ic),
-        title: Text(t,
+        title: Text(label,
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
         onTap: () {
           _sk.currentState?.closeDrawer();
@@ -1370,6 +1231,9 @@ class _HomePageState extends State<HomePage> {
       coords =
           '${p.lat.abs().toStringAsFixed(2)} $ns ${p.lng.abs().toStringAsFixed(3)} $ew\n$gmt GMT';
     }
+    final title = p == null
+        ? t('no_location')
+        : (p.gps ? t('my_location') : p.name);
     return Drawer(
       child: Column(
         children: [
@@ -1381,8 +1245,8 @@ class _HomePageState extends State<HomePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('الموقع الحالي',
-                    style: TextStyle(color: Colors.white, fontSize: 16)),
+                Text(t('current_location'),
+                    style: const TextStyle(color: Colors.white, fontSize: 16)),
                 const SizedBox(height: 6),
                 Row(
                   children: [
@@ -1414,13 +1278,15 @@ class _HomePageState extends State<HomePage> {
                         onPressed: () {
                           setState(() => _recalc());
                           _scheduleAll();
-                          _snack('تم تحديث المواقيت');
+                          _snack(t('times_updated'));
                         },
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Text(p?.name ?? 'لم يتم تحديد الموقع',
+                      child: Text(title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                               color: Colors.white,
                               fontSize: 26,
@@ -1435,21 +1301,20 @@ class _HomePageState extends State<HomePage> {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                _dItem(Icons.volunteer_activism, 'الأذكار',
-                    () => _soon('الأذكار')),
-                _dItem(Icons.alarm, 'التذكير', () => _soon('التذكير')),
-                _dItem(Icons.calendar_month, 'التقويم الهجري', _openHijri),
+                _dItem(Icons.volunteer_activism, t('adhkar'),
+                    () => _soon(t('adhkar'))),
+                _dItem(Icons.alarm, t('reminder'), () => _soon(t('reminder'))),
+                _dItem(Icons.calendar_month, t('hijri_calendar'), _openHijri),
                 const Divider(),
-                _dItem(Icons.calendar_view_month, 'شهري', _openMonthly),
-                _dItem(Icons.explore, 'القبلة', _openQibla),
-                _dItem(Icons.place, 'المواقع', _placeSheet),
-                _dItem(Icons.music_note, 'أصوات الأذان',
-                    () => _soon('أصوات الأذان')),
-                _dItem(Icons.palette, 'الثيمات', _themeDialog),
+                _dItem(Icons.calendar_view_month, t('monthly'), _openMonthly),
+                _dItem(Icons.explore, t('qibla'), _openQibla),
+                _dItem(Icons.place, t('locations'), _placeSheet),
+                _dItem(Icons.music_note, t('adhan_sounds'),
+                    () => _soon(t('adhan_sounds'))),
+                _dItem(Icons.palette, t('themes'), _openSettings),
                 const Divider(),
-                _dItem(Icons.settings, 'الإعدادات', _settings),
-                _dItem(Icons.help, 'إقتراح أو مشكلة',
-                    () => _soon('الاقتراحات')),
+                _dItem(Icons.settings, t('settings'), _openSettings),
+                _dItem(Icons.help, t('feedback'), () => _soon(t('feedback'))),
               ],
             ),
           ),
@@ -1460,10 +1325,13 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      key: _sk,
-      drawer: _place == null ? null : _drawer(),
-      body: _place == null ? SafeArea(child: _welcome()) : _home(),
+    return Directionality(
+      textDirection: appDir,
+      child: Scaffold(
+        key: _sk,
+        drawer: _place == null ? null : _drawer(),
+        body: _place == null ? SafeArea(child: _welcome()) : _home(),
+      ),
     );
   }
 }
