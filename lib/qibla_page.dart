@@ -135,30 +135,33 @@ class _QiblaPageState extends State<QiblaPage> {
     final h = _heading;
     final diff = h == null ? null : ((_qibla - h + 540) % 360) - 180;
     final aligned = diff != null && diff.abs() <= 4;
+    final qDeg = arDigits(_qibla.round().toString());
     String status;
     if (aligned) {
-      status = 'أنت في اتجاه القبلة ✓';
+      status = t('q_aligned');
     } else if (h == null) {
-      status = _noSensor
-          ? 'مستشعر البوصلة غير متوفر في هذا الهاتف'
-          : 'جارٍ قراءة البوصلة...';
+      status = _noSensor ? t('q_no_sensor') : t('q_reading');
     } else {
-      status = 'أدر الهاتف حتى يشير السهم الأخضر للأعلى';
+      status = t('q_rotate');
     }
+    final pname = widget.place.gps ? t('my_location') : widget.place.name;
     return Scaffold(
-      appBar: AppBar(title: Text('اتجاه القبلة - ${widget.place.name}')),
+      appBar: AppBar(title: Text(t('qibla_title', [pname]))),
       body: Container(
         decoration: pageBg(c),
         child: SafeArea(
           child: Column(
             children: [
               const SizedBox(height: 16),
-              Text(status,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: aligned ? const Color(0xFF0A9A0A) : c.text)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(status,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: aligned ? const Color(0xFF0A9A0A) : c.text)),
+              ),
               Expanded(
                 child: Center(
                   child: AspectRatio(
@@ -188,20 +191,20 @@ class _QiblaPageState extends State<QiblaPage> {
                 ),
                 child: Column(
                   children: [
-                    Text(
-                        'اتجاه القبلة: ${arDigits(_qibla.round().toString())}° من الشمال',
+                    Text(t('q_bearing', [qDeg]),
                         style: TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
                             color: c.text)),
                     const SizedBox(height: 4),
                     Text(
-                        'المسافة إلى الكعبة: ${arDigits(_dist.round().toString())} كم',
+                        t('q_distance',
+                            [arDigits(_dist.round().toString())]),
                         style: TextStyle(fontSize: 15, color: c.text)),
                     if (h != null) ...[
                       const SizedBox(height: 4),
                       Text(
-                          'اتجاه هاتفك الآن: ${arDigits(h.round().toString())}°',
+                          t('q_heading', [arDigits(h.round().toString())]),
                           style: TextStyle(fontSize: 14, color: c.soft)),
                     ],
                   ],
@@ -210,7 +213,9 @@ class _QiblaPageState extends State<QiblaPage> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
                 child: Text(
-                    'ضع الهاتف أفقياً بعيداً عن المعادن والمغناطيس، وحرّكه على شكل رقم 8 لمعايرة البوصلة.',
+                    (_noSensor && h == null)
+                        ? t('q_help_nosensor', [qDeg])
+                        : t('q_note'),
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 12, color: c.soft)),
               ),
@@ -243,7 +248,7 @@ class CompassPainter extends CustomPainter {
         style: TextStyle(
             color: color, fontSize: size, fontWeight: FontWeight.w800),
       ),
-      textDirection: TextDirection.rtl,
+      textDirection: TextDirection.ltr,
     )..layout();
     tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
   }
@@ -281,7 +286,7 @@ class CompassPainter extends CustomPainter {
       );
     }
 
-    const letters = ['ش', 'ق', 'ج', 'غ'];
+    const letters = ['N', 'E', 'S', 'W'];
     for (int i = 0; i < 4; i++) {
       final ang = i * 90 * math.pi / 180;
       canvas.save();
