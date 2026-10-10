@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math' as math;
 import 'package:adhan/adhan.dart';
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
+import 'pages.dart';
 
 const names = ['الفجر', 'الشروق', 'الظهر', 'العصر', 'المغرب', 'العشاء'];
 const adhanNames = ['الفجر', 'الظهر', 'العصر', 'المغرب', 'العشاء'];
@@ -182,6 +182,7 @@ String arDigits(String s) {
 // ---------------- الإشعارات ----------------
 final FlutterLocalNotificationsPlugin notif = FlutterLocalNotificationsPlugin();
 const String channelId = 'adhan_channel_v1';
+const String persistChannelId = 'next_prayer_v1';
 
 Future<void> initNotifications() async {
   tzdata.initializeTimeZones();
@@ -200,6 +201,14 @@ Future<void> initNotifications() async {
     sound: RawResourceAndroidNotificationSound('adhan'),
     audioAttributesUsage: AudioAttributesUsage.alarm,
     enableVibration: true,
+  ));
+  await a?.createNotificationChannel(const AndroidNotificationChannel(
+    persistChannelId,
+    'الصلاة القادمة',
+    description: 'إشعار دائم بالصلاة القادمة والوقت المتبقي',
+    importance: Importance.low,
+    playSound: false,
+    enableVibration: false,
   ));
 }
 
@@ -225,6 +234,30 @@ NotificationDetails adhanDetails() => const NotificationDetails(
         visibility: NotificationVisibility.public,
       ),
     );
+
+NotificationDetails persistDetails(DateTime target, int timeoutMs) {
+  return NotificationDetails(
+    android: AndroidNotificationDetails(
+      persistChannelId,
+      'الصلاة القادمة',
+      channelDescription: 'إشعار دائم بالصلاة القادمة والوقت المتبقي',
+      importance: Importance.low,
+      priority: Priority.low,
+      ongoing: true,
+      autoCancel: false,
+      playSound: false,
+      enableVibration: false,
+      onlyAlertOnce: true,
+      showWhen: true,
+      when: target.millisecondsSinceEpoch,
+      usesChronometer: true,
+      chronometerCountDown: true,
+      timeoutAfter: timeoutMs,
+      category: AndroidNotificationCategory.status,
+      visibility: NotificationVisibility.public,
+    ),
+  );
+}
 
 Future<AndroidScheduleMode> scheduleMode() async {
   final a = notif.resolvePlatformSpecificImplementation<
@@ -405,6 +438,7 @@ class _HomePageState extends State<HomePage> {
   String _method = 'رابطة العالم الإسلامي';
   bool _hanafi = false;
   bool _adhanOn = true;
+  bool _persistOn = true;
   bool _use24 = true;
   int _hcorr = 0;
   List<bool> _prayerOn = [true, true, true, true, true];
@@ -464,6 +498,7 @@ class _HomePageState extends State<HomePage> {
     if (m != null && methods.containsKey(m)) _method = m;
     _hanafi = sp.getBool('hanafi') ?? false;
     _adhanOn = sp.getBool('adhanOn') ?? true;
+    _persistOn = sp.getBool('persistOn') ?? true;
     _use24 = sp.getBool('use24') ?? true;
     _hcorr = sp.getInt('hcorr') ?? 0;
     final po = sp.getStringList('prayerOn');
@@ -505,6 +540,7 @@ class _HomePageState extends State<HomePage> {
     await sp.setString('method', _method);
     await sp.setBool('hanafi', _hanafi);
     await sp.setBool('adhanOn', _adhanOn);
+    await sp.setBool('persistOn', _persistOn);
     await sp.setBool('use24', _use24);
     await sp.setInt('hcorr', _hcorr);
     await sp.setStringList(
@@ -541,7 +577,7 @@ class _HomePageState extends State<HomePage> {
     _wallNow = now;
   }
 
-  // ---------------- جدولة الأذان ----------------
+  // ---------------- جدولة الأذان والإشعار الدائم ----------------
   Future<void> _scheduleAll() async {
     if (_sched) {
       _schedAgain = true;
@@ -558,41 +594,99 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  List<List<DateTime>> _upcoming(int days) {
+    final p = _place!;
+    final off = _offset(p);
+    final coords = Coordinates(p.lat, p.lng);
+    final params = methods[_method]!.getParameters();
+    params.madhab = _hanafi ? Madhab.hanafi : Madhab.shafi;
+    final wallNow = DateTime.now().toUtc().add(off);
+    final out = <List<DateTime>>[];
+    for (int d = 0; d < days; d++) {
+      final date = wallNow.add(Duration(days: d));
+      final pt = PrayerTimes(coords, DateComponents.from(date), params,
+          utcOffset: off);
+      final list = [pt.fajr, pt.dhuhr, pt.asr, pt.maghrib, pt.isha];
+      out.add(list.map((t) => _wall(t, off).subtract(off)).toList());
+    }
+    return out;
+  }
+
   Future<void> _doSchedule() async {
     final p = _place;
     if (p == null) return;
     try {
       await notif.cancelAll();
-      if (!_adhanOn) return;
       final off = _offset(p);
-      final coords = Coordinates(p.lat, p.lng);
-      final params = methods[_method]!.getParameters();
-      params.madhab = _hanafi ? Madhab.hanafi : Madhab.shafi;
       final nowUtc = DateTime.now().toUtc();
-      final wallNow = nowUtc.add(off);
+      final days = _upcoming(7);
       final mode = await scheduleMode();
-      for (int d = 0; d < 7; d++) {
-        final date = wallNow.add(Duration(days: d));
-        final pt = PrayerTimes(coords, DateComponents.from(date), params,
-            utcOffset: off);
-        final list = [pt.fajr, pt.dhuhr, pt.asr, pt.maghrib, pt.isha];
-        for (int i = 0; i < 5; i++) {
-          if (!_prayerOn[i]) continue;
-          final wall = _wall(list[i], off);
-          final instant = wall.subtract(off);
-          if (!instant.isAfter(nowUtc)) continue;
-          await notif.zonedSchedule(
-            id: d * 10 + i,
-            title: 'حان الآن موعد أذان ${adhanNames[i]}',
-            body: p.gps ? 'حسب موقعك الحالي' : 'حسب توقيت ${p.name}',
-            scheduledDate: tz.TZDateTime.from(instant, tz.UTC),
-            notificationDetails: adhanDetails(),
-            androidScheduleMode: mode,
-          );
+      if (_adhanOn) {
+        for (int d = 0; d < days.length; d++) {
+          for (int i = 0; i < 5; i++) {
+            if (!_prayerOn[i]) continue;
+            final instant = days[d][i];
+            if (!instant.isAfter(nowUtc)) continue;
+            await notif.zonedSchedule(
+              id: d * 10 + i,
+              title: 'حان الآن موعد أذان ${adhanNames[i]}',
+              body: p.gps ? 'حسب موقعك الحالي' : 'حسب توقيت ${p.name}',
+              scheduledDate: tz.TZDateTime.from(instant, tz.UTC),
+              notificationDetails: adhanDetails(),
+              androidScheduleMode: mode,
+            );
+          }
         }
       }
+      if (_persistOn) {
+        await _schedulePersistent(days, off, nowUtc, mode);
+      }
     } catch (e) {
-      _snack('تعذرت جدولة الأذان: $e');
+      _snack('تعذرت الجدولة: $e');
+    }
+  }
+
+  Future<void> _schedulePersistent(List<List<DateTime>> days, Duration off,
+      DateTime nowUtc, AndroidScheduleMode mode) async {
+    final p = _place!;
+    final ev = <MapEntry<int, DateTime>>[];
+    for (final d in days) {
+      for (int i = 0; i < 5; i++) {
+        ev.add(MapEntry(i, d[i]));
+      }
+    }
+    int firstNext = -1;
+    for (int k = 0; k < ev.length; k++) {
+      if (ev[k].value.isAfter(nowUtc)) {
+        firstNext = k;
+        break;
+      }
+    }
+    if (firstNext == -1) return;
+    final cur = ev[firstNext];
+    await notif.show(
+      id: 199,
+      title: 'الصلاة القادمة: ${adhanNames[cur.key]}',
+      body: '${_fmt(cur.value.add(off))}  •  ${p.name}',
+      notificationDetails: persistDetails(
+        cur.value,
+        cur.value.difference(nowUtc).inMilliseconds,
+      ),
+    );
+    for (int k = firstNext; k < ev.length - 1; k++) {
+      final start = ev[k].value;
+      final nxt = ev[k + 1];
+      await notif.zonedSchedule(
+        id: 200 + k - firstNext,
+        title: 'الصلاة القادمة: ${adhanNames[nxt.key]}',
+        body: '${_fmt(nxt.value.add(off))}  •  ${p.name}',
+        scheduledDate: tz.TZDateTime.from(start, tz.UTC),
+        notificationDetails: persistDetails(
+          nxt.value,
+          nxt.value.difference(start).inMilliseconds,
+        ),
+        androidScheduleMode: mode,
+      );
     }
   }
 
@@ -777,6 +871,25 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  void _openHijri() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => HijriCalendarPage(hcorr: _hcorr, today: _wallNow),
+    ));
+  }
+
+  void _openMonthly() {
+    final p = _place;
+    if (p == null) return;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => MonthlyPage(
+        place: p,
+        method: _method,
+        hanafi: _hanafi,
+        use24: _use24,
+      ),
+    ));
+  }
+
   // ---------------- اختيار الثيم ----------------
   Widget _themePreview(AppPalette p, bool selected) {
     return Container(
@@ -936,7 +1049,7 @@ class _HomePageState extends State<HomePage> {
                     ],
                   ),
                   const Divider(),
-                  const Text('الأذان',
+                  const Text('الأذان والإشعارات',
                       style:
                           TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   SwitchListTile(
@@ -944,6 +1057,12 @@ class _HomePageState extends State<HomePage> {
                     title: const Text('تفعيل الأذان'),
                     value: _adhanOn,
                     onChanged: (v) => upd(() => _adhanOn = v),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('إشعار دائم بالصلاة القادمة'),
+                    value: _persistOn,
+                    onChanged: (v) => upd(() => _persistOn = v),
                   ),
                   for (int i = 0; i < 5; i++)
                     CheckboxListTile(
@@ -1128,12 +1247,15 @@ class _HomePageState extends State<HomePage> {
             onPressed: () => _sk.currentState?.openDrawer(),
           ),
           Expanded(
-            child: Center(
-              child: Text(_hijriText(),
-                  style: TextStyle(
-                      color: c.text,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700)),
+            child: GestureDetector(
+              onTap: _openHijri,
+              child: Center(
+                child: Text(_hijriText(),
+                    style: TextStyle(
+                        color: c.text,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700)),
+              ),
             ),
           ),
           IconButton(
@@ -1306,11 +1428,9 @@ class _HomePageState extends State<HomePage> {
                 _dItem(Icons.volunteer_activism, 'الأذكار',
                     () => _soon('الأذكار')),
                 _dItem(Icons.alarm, 'التذكير', () => _soon('التذكير')),
-                _dItem(Icons.calendar_month, 'التقويم الهجري',
-                    () => _soon('التقويم الهجري')),
+                _dItem(Icons.calendar_month, 'التقويم الهجري', _openHijri),
                 const Divider(),
-                _dItem(Icons.calendar_view_month, 'شهري',
-                    () => _soon('الجدول الشهري')),
+                _dItem(Icons.calendar_view_month, 'شهري', _openMonthly),
                 _dItem(Icons.place, 'المواقع', _placeSheet),
                 _dItem(Icons.music_note, 'أصوات الأذان',
                     () => _soon('أصوات الأذان')),
