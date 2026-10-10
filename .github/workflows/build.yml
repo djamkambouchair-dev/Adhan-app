@@ -42,6 +42,30 @@ jobs:
             echo "adhan.mp3 is missing in the repo root"
             exit 1
           fi
+      # بيانات المدن: غيّر v1 إلى v2 لإعادة توليدها
+      - name: Restore geo cache
+        id: geocache
+        uses: actions/cache/restore@v4
+        with:
+          path: assets/geo
+          key: geo-data-v1
+      - name: Build geo data
+        id: gen
+        if: steps.geocache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        timeout-minutes: 25
+        run: python3 tools/build_geo.py
+      - name: Save geo cache
+        if: steps.geocache.outputs.cache-hit != 'true' && steps.gen.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: assets/geo
+          key: geo-data-v1
+      - name: Ensure geo folder
+        run: |
+          mkdir -p assets/geo
+          if [ ! -f assets/geo/index.json ]; then echo '[]' > assets/geo/index.json; fi
+          ls assets/geo | head -n 5
       - run: flutter create --platforms=android --project-name adhan_app .
       - name: Patch Android
         run: |
